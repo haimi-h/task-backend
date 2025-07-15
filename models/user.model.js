@@ -30,7 +30,8 @@ const User = {
 
     // NEW METHOD: Find a user by their ID (for profile fetching)
     findById: (id, callback) => {
-        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, role FROM users WHERE id = ?";
+        // UPDATED: Include walletAddress and privateKey in the SELECT statement
+        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 console.error(`[User Model - findById] Database error for User ${id}:`, err); // DEBUG LOG

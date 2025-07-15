@@ -17,8 +17,16 @@ router.put('/users/:userId', authenticateToken, adminController.checkAdminRole, 
 // Example: POST /api/admin/users/inject/:userId
 router.post('/users/inject/:userId', authenticateToken, adminController.checkAdminRole, adminController.injectWallet);
 
-// You can add more admin routes here as you implement more admin features
-// e.g., router.delete('/users/:userId', authenticateToken, adminController.checkAdminRole, adminController.deleteUser);
-// e.g., router.get('/users/:userId', authenticateToken, adminController.checkAdminRole, adminController.getSingleUser);
+// Route to update a user's full profile (including wallet address and password)
+// This will be called by the SettingModal
+router.put('/users/:userId/profile', authenticateToken, adminController.checkAdminRole, adminController.updateUserProfile);
+
+// Route to generate and assign a new wallet address to a specific user
+// This will be called from the frontend when a user needs a wallet address assigned.
+router.post('/users/:userId/generate-wallet', authenticateToken, adminController.checkAdminRole, adminController.generateAndAssignWallet);
+
+// ADDED: Route to delete a user by ID
+// This will be called by the UserTable when deleting selected users.
+router.delete('/users/:userId', authenticateToken, adminController.checkAdminRole, adminController.deleteUser);
 
 module.exports = router;

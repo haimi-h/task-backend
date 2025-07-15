@@ -31,6 +31,7 @@ exports.getUserProfile = (req, res) => {
                 completed_orders: user.completed_orders || 0,
                 uncompleted_orders: user.uncompleted_orders || 0,
                 wallet_balance: user.wallet_balance || 0,
+                walletAddress: user.walletAddress || null, // ADDED: Include walletAddress
                 role: user.role || 'user'
             }
         });
@@ -56,4 +57,25 @@ exports.getMyReferrals = (req, res) => {
             res.status(200).json({ referrals: results });
         }
     );
+};
+
+/**
+ * ADDED: Fetches the profile of the currently logged-in user.
+ * This function is intended for the /api/users/me endpoint.
+ */
+exports.getLoggedInUser = (req, res) => {
+    // req.user should be populated by authenticateToken middleware
+    const userId = req.user.id; 
+
+    User.findById(userId, (err, user) => { // Assuming User.findById exists and fetches walletAddress
+        if (err) {
+            console.error('Error fetching logged-in user for /me endpoint:', err);
+            return res.status(500).json({ message: 'Failed to fetch user data.' });
+        }
+        if (!user) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+        // Return the user object, which now includes walletAddress from user.model.js
+        res.json(user);
+    });
 };

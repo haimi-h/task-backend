@@ -1,7 +1,9 @@
 const Admin = require('../models/admin.model');
-const User = require('../models/user.model');
-const Task = require('../models/task.model'); // Import Task model to get total product count
+const User = require('../models/user.model'); // Ensure this imports your main User model if different
+const Task = require('../models/task.model');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs'); // Assuming you use bcrypt for password hashing
+const tronWeb = require('../tron'); // Import tronWeb for wallet generation
 require('dotenv').config();
 
 /**
@@ -26,60 +28,35 @@ exports.getAllUsers = (req, res) => {
     console.log(`[Admin Controller - getAllUsers] Fetching all users for admin.`);
     Admin.getAllUsersForAdmin((err, users) => {
         if (err) {
-            console.error("Error fetching all users for admin:", err);
-            return res.status(500).json({ message: "Error fetching users.", error: err.message });
+            console.error('Error fetching users for admin:', err);
+            return res.status(500).json({ message: "Failed to retrieve users.", error: err.message });
         }
-        console.log(`[Admin Controller - getAllUsers] Successfully fetched ${users.length} users.`);
-        res.status(200).json(users);
+        // If successful, users array will contain the walletAddress field due to model update
+        res.json(users);
     });
 };
 
 /**
- * Updates a specific user's daily_orders.
+ * Updates a user's daily_orders count.
  * This endpoint should be protected by checkAdminRole middleware.
- * Includes validation to ensure daily_orders does not exceed total products.
  */
 exports.updateUserDailyOrders = (req, res) => {
     const { userId } = req.params;
     const { daily_orders } = req.body;
 
-    console.log(`[Admin Controller - updateUserDailyOrders] Received request for User ID: ${userId}, Raw Daily Orders from body: ${daily_orders}`); // DEBUG LOG
-
-    // Basic validation for input type and non-negativity
-    if (typeof daily_orders === 'undefined' || isNaN(parseInt(daily_orders)) || parseInt(daily_orders) < 0) {
-        console.log(`[Admin Controller - updateUserDailyOrders] Invalid daily_orders value: ${daily_orders}`);
-        return res.status(400).json({ message: "Invalid daily_orders value. Must be a non-negative number." });
+    if (typeof daily_orders === 'undefined' || isNaN(daily_orders) || daily_orders < 0) {
+        return res.status(400).json({ message: "Invalid daily orders value." });
     }
 
-    const newDailyOrdersInt = parseInt(daily_orders);
-    console.log(`[Admin Controller - updateUserDailyOrders] Parsed daily_orders (integer): ${newDailyOrdersInt}`); // DEBUG LOG
-
-    // Get total product count for validation
-    Task.getTotalProductCount((err, totalProducts) => {
+    Admin.updateUserDailyOrders(userId, daily_orders, (err, result) => {
         if (err) {
-            console.error("Error fetching total product count for validation:", err);
-            return res.status(500).json({ message: "Internal server error during validation." });
+            console.error(`Error updating daily orders for user ${userId}:`, err);
+            return res.status(500).json({ message: "Failed to update daily orders.", error: err.message });
         }
-        console.log(`[Admin Controller - updateUserDailyOrders] Total products: ${totalProducts}`);
-
-        // Perform the validation
-        if (newDailyOrdersInt > totalProducts) {
-            console.log(`[Admin Controller - updateUserDailyOrders] Daily orders (${newDailyOrdersInt}) exceed total products (${totalProducts}).`);
-            return res.status(400).json({ message: `Daily orders cannot exceed the total number of products (${totalProducts}).` });
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "User not found or no changes made." });
         }
-
-        Admin.updateUserDailyOrders(userId, newDailyOrdersInt, (err, result) => {
-            if (err) {
-                console.error(`Error updating daily orders for user ${userId}:`, err);
-                return res.status(500).json({ message: "Failed to update daily orders.", error: err.message });
-            }
-            if (result.affectedRows === 0) {
-                console.log(`[Admin Controller - updateUserDailyOrders] User ${userId} not found or no changes made.`);
-                return res.status(404).json({ message: "User not found or no changes made." });
-            }
-            console.log(`[Admin Controller - updateUserDailyOrders] Daily orders updated successfully for user ${userId}. Affected rows: ${result.affectedRows}`);
-            res.status(200).json({ message: "Daily orders updated successfully." });
-        });
+        res.json({ message: "Daily orders updated successfully." });
     });
 };
 
@@ -109,6 +86,114 @@ exports.injectWallet = (req, res) => {
             return res.status(404).json({ message: "User not found or no changes made." });
         }
         console.log(`[Admin Controller - injectWallet] Wallet balance injected successfully for user ${userId}. Affected rows: ${result.affectedRows}`);
-        res.status(200).json({ message: "Wallet balance injected successfully." });
+        res.json({ message: "Wallet balance injected successfully." });
+    });
+};
+
+/**
+ * Updates a user's profile information, including wallet address and password.
+ * This endpoint should be protected by checkAdminRole middleware.
+ */
+exports.updateUserProfile = (req, res) => {
+    const { userId } = req.params;
+    const { username, phone, walletAddress, new_password } = req.body;
+
+    console.log(`[Admin Controller - updateUserProfile] Received request for User ID: ${userId}, Data:`, { username, phone, walletAddress, new_password: new_password ? '***' : 'N/A' });
+
+    const updateData = { username, phone, walletAddress };
+
+    if (new_password) {
+        bcrypt.hash(new_password, 10, (err, hashedPassword) => {
+            if (err) {
+                console.error('Error hashing password:', err);
+                return res.status(500).json({ message: 'Failed to hash password.' });
+            }
+            updateData.password = hashedPassword;
+            Admin.updateUser(userId, updateData, (err, result) => {
+                if (err) {
+                    console.error(`Error updating user profile for user ${userId}:`, err);
+                    return res.status(500).json({ message: "Failed to update user profile.", error: err.message });
+                }
+                if (result.affectedRows === 0) {
+                    console.log(`[Admin Controller - updateUserProfile] User ${userId} not found or no changes made.`);
+                    return res.status(404).json({ message: "User not found or no changes made." });
+                }
+                console.log(`[Admin Controller - updateUserProfile] User profile updated successfully for user ${userId}.`);
+                res.json({ message: "User profile updated successfully." });
+            });
+        });
+    } else {
+        Admin.updateUser(userId, updateData, (err, result) => {
+            if (err) {
+                console.error(`Error updating user profile for user ${userId}:`, err);
+                return res.status(500).json({ message: "Failed to update user profile.", error: err.message });
+            }
+            if (result.affectedRows === 0) {
+                console.log(`[Admin Controller - updateUserProfile] User ${userId} not found or no changes made.`);
+                return res.status(404).json({ message: "User not found or no changes made." });
+            }
+            console.log(`[Admin Controller - updateUserProfile] User profile updated successfully for user ${userId}.`);
+            res.json({ message: "User profile updated successfully." });
+        });
+    }
+};
+
+/**
+ * Generates a new Tron wallet address and assigns it to a specific user.
+ * This endpoint should be protected by checkAdminRole middleware.
+ */
+exports.generateAndAssignWallet = async (req, res) => {
+    const { userId } = req.params;
+    console.log(`[Admin Controller - generateAndAssignWallet] Request to generate and assign wallet for User ID: ${userId}`);
+
+    try {
+        // 1. Generate a new Tron account (address + private key)
+        const account = await tronWeb.createAccount();
+        const newWalletAddress = account.address.base58;
+        const newPrivateKey = account.privateKey;
+
+        // 2. Assign this generated address and private key to the user in the database
+        Admin.assignWalletAddress(userId, newWalletAddress, newPrivateKey, (err, result) => {
+            if (err) {
+                console.error(`Error assigning wallet to user ${userId}:`, err);
+                return res.status(500).json({ message: "Failed to assign wallet address.", error: err.message });
+            }
+            if (result.affectedRows === 0) {
+                console.log(`[Admin Controller - generateAndAssignWallet] User ${userId} not found or no changes made.`);
+                return res.status(404).json({ message: "User not found or no changes made." });
+            }
+            console.log(`[Admin Controller - generateAndAssignWallet] Wallet address ${newWalletAddress} assigned to user ${userId}.`);
+            res.json({ message: "Wallet address assigned successfully.", walletAddress: newWalletAddress });
+        });
+
+    } catch (error) {
+        console.error('Error generating or assigning wallet:', error);
+        res.status(500).json({ error: 'Failed to generate and assign wallet address.' });
+    }
+};
+
+/**
+ * ADDED: Deletes a user from the database.
+ * This endpoint should be protected by checkAdminRole middleware.
+ */
+exports.deleteUser = (req, res) => {
+    const { userId } = req.params;
+    console.log(`[Admin Controller - deleteUser] Request to delete User ID: ${userId}`);
+
+    Admin.deleteUser(userId, (err, result) => {
+        if (err) {
+            console.error(`Error deleting user ${userId}:`, err);
+            // Check for specific foreign key constraint error (e.g., MySQL error code 1451)
+            if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.errno === 1451) {
+                return res.status(409).json({ message: "Cannot delete user: related records exist in other tables. Please delete them first or configure CASCADE DELETE." });
+            }
+            return res.status(500).json({ message: "Failed to delete user.", error: err.message });
+        }
+        if (result.affectedRows === 0) {
+            console.log(`[Admin Controller - deleteUser] User ${userId} not found.`);
+            return res.status(404).json({ message: "User not found." });
+        }
+        console.log(`[Admin Controller - deleteUser] User ${userId} deleted successfully.`);
+        res.json({ message: "User deleted successfully." });
     });
 };
