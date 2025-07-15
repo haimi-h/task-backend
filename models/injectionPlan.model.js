@@ -1,4 +1,3 @@
-
 const db = require('./db');
 
 const InjectionPlan = {
@@ -28,7 +27,7 @@ const InjectionPlan = {
     /**
      * Finds all injection plans for a specific user.
      * @param {number} userId - The ID of the user.
-     * @param {function} callback - The callback function (err, results).
+     * @param {function} callback - The callback function (err, results).\
      */
     findByUserId: (userId, callback) => {
         const sql = `SELECT * FROM injection_plans WHERE user_id = ? ORDER BY injection_order ASC`;
@@ -36,14 +35,32 @@ const InjectionPlan = {
     },
 
     /**
+     * NEW METHOD: Finds a specific injection plan for a user based on their user ID and the injection order.
+     * This is used to determine if a given task (by its sequential order) is a lucky order.
+     * @param {number} userId - The ID of the user.
+     * @param {number} injectionOrder - The specific order number of the injection.
+     * @param {function} callback - The callback function (err, result).
+     */
+    findByUserIdAndOrder: (userId, injectionOrder, callback) => {
+        const sql = `SELECT * FROM injection_plans WHERE user_id = ? AND injection_order = ? LIMIT 1`;
+        db.query(sql, [userId, injectionOrder], (err, results) => {
+            if (err) {
+                console.error(`[InjectionPlan Model - findByUserIdAndOrder] Error fetching plan for User ${userId}, Order ${injectionOrder}:`, err);
+                return callback(err, null);
+            }
+            callback(null, results[0] || null);
+        });
+    },
+
+    /**
      * Updates an existing injection plan.
      * @param {number} id - The ID of the injection plan to update.
      * @param {object} planData - The updated data.
-     * @param {function} callback - The callback function (err, result).
+     * @param {function} callback - The callback function (err, result).\
      */
     update: (id, planData, callback) => {
         const sql = `
-            UPDATE injection_plans 
+            UPDATE injection_plans
             SET injection_order = ?, commission_rate = ?, injections_amount = ?
             WHERE id = ?
         `;

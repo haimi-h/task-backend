@@ -1,7 +1,7 @@
 // your-project/server.js
 const express = require('express');
 const cors = require('cors');
-const http = require('http');
+const http = require('http'); // FIX: Corrected this line
 const { Server } = require('socket.io');
 
 const authRoutes = require('./routes/auth.routes');
@@ -22,17 +22,42 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// Define allowed origins for CORS.
+// In development, use localhost origins.
+// In production, you MUST replace these with your actual deployed frontend URLs.
+// Example: ['https://your-user-app.com', 'https://your-admin-app.com']
+const allowedOrigins = process.env.NODE_ENV === 'production'
+    ? [
+        'https://your-user-frontend-domain.com', // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
+        'https://your-admin-frontend-domain.com'  // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
+      ]
+    : ["http://localhost:3000", "http://localhost:3001"];
+
+// Configure CORS middleware for HTTP requests
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"], // Ensure all methods your API uses are listed
+  credentials: true // Allow cookies/authorization headers to be sent
+}));
+
 // Configure Socket.IO server
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"], // Allow both frontend origins
-    methods: ["GET", "POST"]
+    origin: allowedOrigins, // Use the same allowed origins for Socket.IO
+    methods: ["GET", "POST"] // Methods allowed for WebSocket connections
   }
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(express.json()); // This should be after cors() if you want to apply cors to json parsing errors too
 
 // Routes
 app.use('/api/auth', authRoutes);
