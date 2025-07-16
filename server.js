@@ -28,8 +28,8 @@ const server = http.createServer(app);
 // Example: ['https://your-user-app.com', 'https://your-admin-app.com']
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
-        'https://your-user-frontend-domain.com', // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
-        'https://your-admin-frontend-domain.com'  // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
+        'https://shopify-clone-orpin.vercel.app', // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
+        // 'https://your-admin-frontend-domain.com'  // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
       ]
     : ["http://localhost:3000", "http://localhost:3001"];
 
