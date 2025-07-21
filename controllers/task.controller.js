@@ -1,7 +1,5 @@
 const Task = require('../models/task.model');
 const User = require('../models/user.model');
-const InjectionPlan = require('../models/injectionPlan.model'); // Assuming you have this model
-const Product = require('../models/product.model'); // Assuming you have a Product model
 const { io } = require('../server'); // Assuming 'io' can be imported or passed (see server.js update below)
 
 exports.getTask = (req, res) => {
@@ -22,75 +20,27 @@ exports.getTask = (req, res) => {
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
-        const currentCompletedTasks = parseInt(user.completed_orders || 0);
+        const currentUncompleted = parseInt(user.uncompleted_orders || 0);
         const dailyLimit = parseInt(user.daily_orders || 0);
 
-        console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}`);
+        console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Uncompleted: ${currentUncompleted}`);
 
-        // Check if user has completed all their daily tasks
-        if (currentCompletedTasks >= dailyLimit) {
-            console.log(`[Task Controller - getTask] User ${userId} has completed all their daily tasks. Returning "completed all daily tasks" message.`);
-            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
+        if (currentUncompleted <= 0) {
+            console.log(`[Task Controller - getTask] User ${userId} has no uncompleted daily tasks left. Returning "completed all daily tasks" message.`);
+            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
         }
-
-        // --- NEW LOGIC FOR LUCKY ORDER ---
-        let isLuckyOrder = false;
-        let luckyOrderCapitalRequired = 0;
-        let luckyOrderProfit = 0;
-        const nextTaskNumber = currentCompletedTasks + 1;
-
-        // Fetch injection plans for the current user
-        InjectionPlan.findByUserId(userId, (planErr, injectionPlans) => { // Assuming findByUserId method exists on InjectionPlan model
-            if (planErr) {
-                console.error("Error fetching injection plans:", planErr);
-                return res.status(500).json({ message: "Error fetching injection plans.", error: planErr.message });
+        
+        Task.getTaskForUser(userId, (err, task) => {
+            if (err) {
+                console.error("Error fetching task:", err);
+                return res.status(500).json({ message: "Error fetching task", error: err.message });
             }
-
-            const matchingInjectionPlan = injectionPlans.find(plan =>
-                parseInt(plan.injection_order, 10) === nextTaskNumber
-            );
-
-            if (matchingInjectionPlan) {
-                isLuckyOrder = true;
-                luckyOrderCapitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
-                luckyOrderProfit = parseFloat(matchingInjectionPlan.commission_rate);
-                console.log(`[Task Controller - getTask] Lucky order found for user ${userId} at task ${nextTaskNumber}. Capital: ${luckyOrderCapitalRequired}, Profit: ${luckyOrderProfit}`);
+            if (!task) {
+                console.log(`[Task Controller - getTask] User ${userId} has uncompleted orders (${currentUncompleted}) but Task.getTaskForUser returned no task. Returning "no new products" message.`);
+                return res.status(200).json({ message: "No new products available for rating. You might have already rated all products.", task: null });
             }
-
-            // Fetch a task (product) for the user
-            Task.getTaskForUser(userId, (taskErr, task) => { // This should ideally return a product
-                if (taskErr) {
-                    console.error("Error fetching task:", taskErr);
-                    return res.status(500).json({ message: "Error fetching task", error: taskErr.message });
-                }
-                if (!task) {
-                    console.log(`[Task Controller - getTask] User ${userId} has uncompleted orders (${dailyLimit - currentCompletedTasks}) but Task.getTaskForUser returned no task. Returning "no new products" message.`);
-                    return res.status(200).json({ message: "No new products available for rating. You might have already rated all products.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
-                }
-
-                // Construct the task object to send to frontend, overriding with lucky order details if applicable
-                const taskToSend = {
-                    id: task.id,
-                    name: task.name,
-                    image_url: task.image_url || task.image, // Use image_url or image based on your product schema
-                    description: task.description,
-                    price: task.price,
-                    // Apply lucky order capital/profit if applicable
-                    capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (task.capital_required || 0),
-                    profit: isLuckyOrder ? luckyOrderProfit : (task.profit || 0)
-                };
-
-                console.log(`[Task Controller - getTask] User ${userId} - Task fetched:`, taskToSend.name, "Is Lucky Order:", isLuckyOrder);
-
-                // Send the full response including taskCount and lucky order details
-                res.status(200).json({
-                    task: taskToSend,
-                    balance: user.wallet_balance || 0, // Assuming user.wallet_balance holds the balance
-                    taskCount: currentCompletedTasks, // Send the current completed task count
-                    isLuckyOrder: isLuckyOrder,
-                    luckyOrderCapitalRequired: luckyOrderCapitalRequired
-                });
-            });
+            console.log(`[Task Controller - getTask] User ${userId} - Task fetched:`, task.name, "Lucky Order:", task.isLuckyOrder);
+            res.status(200).json({ task });
         });
     });
 };
@@ -98,11 +48,8 @@ exports.getTask = (req, res) => {
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     // Expect new fields from frontend for lucky orders
-    // Note: The frontend sends `capitalRequired` and `profitAmount` as `capitalRequired` and `profitAmount`
-    // but the backend expects `commissionRate` for the lucky order profit.
-    // Let's adjust the backend to expect `profitAmount` for lucky orders.
-    const { productId, rating, isLuckyOrder, capitalRequired, profitAmount } = req.body;
-    console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}. Lucky Order: ${isLuckyOrder}, Capital: ${capitalRequired}, Profit: ${profitAmount}`);
+    const { productId, rating, isLuckyOrder, capitalRequired, commissionRate } = req.body;
+    console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}. Lucky Order: ${isLuckyOrder}, Capital: ${capitalRequired}, Commission: ${commissionRate}`);
 
     if (!userId) {
         return res.status(401).json({ message: "User not authenticated." });
@@ -132,18 +79,17 @@ exports.submitTaskRating = (req, res) => {
 
             let message = "Rating submitted.";
             
-
             if (isCompletedRating && currentUncompleted > 0) {
                 currentCompleted++;
                 currentUncompleted--;
 
                 if (isLuckyOrder) {
                     const parsedCapitalRequired = parseFloat(capitalRequired);
-                    const parsedProfitAmount = parseFloat(profitAmount); // Use profitAmount from frontend
+                    const parsedCommissionRate = parseFloat(commissionRate);
 
                     if (isNaN(parsedCapitalRequired) || parsedCapitalRequired <= 0 ||
-                        isNaN(parsedProfitAmount) || parsedProfitAmount <= 0) {
-                        return res.status(400).json({ message: "Invalid capital or profit amount for lucky order." });
+                        isNaN(parsedCommissionRate) || parsedCommissionRate <= 0) {
+                        return res.status(400).json({ message: "Invalid capital or commission rate for lucky order." });
                     }
 
                     if (user.wallet_balance < parsedCapitalRequired) {
@@ -159,19 +105,20 @@ exports.submitTaskRating = (req, res) => {
                             return res.status(500).json({ message: "Failed to process lucky order (deduction).", error: deductErr.message });
                         }
                         console.log(`Lucky order capital ${parsedCapitalRequired} deducted from user ${userId}.`);
-
+                        
                         // Emit balance update to frontend immediately after deduction
-                        if (io) {
-                            io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: user.wallet_balance - parsedCapitalRequired });
-                        }
+                        // if (io) {
+                        //     io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: user.wallet_balance - parsedCapitalRequired });
+                        // }
 
                         message = "Lucky task submitted! Capital deducted. Profit will be credited shortly.";
                         res.status(200).json({ message, isCompleted: isCompletedRating }); // Respond immediately
 
                         // 2. Schedule profit addition after a delay
-                        const returnAmount = parsedCapitalRequired + parsedProfitAmount; // Return capital + profit
+                        const profit = parsedCapitalRequired * parsedCommissionRate;
+                        const returnAmount = parsedCapitalRequired + profit; // Return capital + profit
 
-                        console.log(`Scheduling credit of ${returnAmount} (capital ${parsedCapitalRequired} + profit ${parsedProfitAmount}) for user ${userId}.`);
+                        console.log(`Scheduling credit of ${returnAmount} (capital ${parsedCapitalRequired} + profit ${profit}) for user ${userId}.`);
 
                         setTimeout(() => {
                             User.updateBalanceAndTaskCount(userId, returnAmount, 'add', currentCompleted, currentUncompleted, (addErr, addResult) => {
@@ -180,60 +127,24 @@ exports.submitTaskRating = (req, res) => {
                                 } else {
                                     console.log(`Lucky order profit and capital credited to user ${userId}. Total: ${returnAmount}.`);
                                     // Emit final balance update to frontend
-                                    if (io) {
-                                        // Fetch latest user balance after credit to ensure accuracy
-                                        User.findById(userId, (fetchUserErr, updatedUser) => {
-                                            if (!fetchUserErr && updatedUser) {
-                                                io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: updatedUser.wallet_balance });
-                                            } else {
-                                                console.error("Error fetching updated user balance for socket emit:", fetchUserErr);
-                                            }
-                                        });
-                                    }
+                                    // if (io) {
+                                    //     io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: user.wallet_balance - parsedCapitalRequired + returnAmount });
+                                    // }
                                 }
                             });
-                            // IMPORTANT: Mark the injection plan as used/completed here
-                            // Assuming you have a way to identify and update the specific injection plan
-                            // For example:
-                            InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr, markResult) => {
-                                if (markErr) {
-                                    console.error(`Error marking injection plan for user ${userId} task ${nextTaskNumber} as used:`, markErr);
-                                } else {
-                                    console.log(`Injection plan for user ${userId} task ${nextTaskNumber} marked as used.`);
-                                }
-                            });
-
                         }, 5000); // 5-second delay for simulation
                     });
                 } else {
-                    // Standard 5-star rating: only update task counts and add regular profit
-                    // You need to get the profit for the standard product here
-                    Task.getProductProfit(productId, (profitErr, productProfit) => { // Assuming a method to get product profit
-                        if (profitErr) {
-                            console.error("Error fetching product profit:", profitErr);
-                            return res.status(500).json({ message: "Failed to get product profit.", error: profitErr.message });
+                    // Standard 5-star rating: only update task counts
+                    User.updateUserTaskCounts(userId, currentCompleted, currentUncompleted, (updateErr, updateResult) => {
+                        if (updateErr) {
+                            console.error("Error updating user task counts after rating:", updateErr);
+                            // Even if there's an error here, the rating was recorded, so we might still send success but log the issue
+                            return res.status(500).json({ message: "Task completed, but failed to update user counts accurately.", error: updateErr.message, isCompleted: isCompletedRating });
+                        } else {
+                            console.log(`[Task Controller - submitTaskRating] User ${userId} task counts updated successfully. Affected rows: ${updateResult ? updateResult.affectedRows : 'N/A'}`);
+                            res.status(200).json({ message: "Task completed successfully and counts updated!", isCompleted: isCompletedRating });
                         }
-                        const profitToAdd = productProfit || 0; // Default to 0 if no profit found
-
-                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr, updateResult) => {
-                            if (updateErr) {
-                                console.error("Error updating user task counts and balance after rating:", updateErr);
-                                return res.status(500).json({ message: "Task completed, but failed to update user counts/balance accurately.", error: updateErr.message, isCompleted: isCompletedRating });
-                            } else {
-                                console.log(`[Task Controller - submitTaskRating] User ${userId} task counts and balance updated successfully. Affected rows: ${updateResult ? updateResult.affectedRows : 'N/A'}`);
-                                // Emit balance update for standard tasks as well
-                                if (io) {
-                                     User.findById(userId, (fetchUserErr, updatedUser) => {
-                                        if (!fetchUserErr && updatedUser) {
-                                            io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: updatedUser.wallet_balance });
-                                        } else {
-                                            console.error("Error fetching updated user balance for socket emit:", fetchUserErr);
-                                        }
-                                    });
-                                }
-                                res.status(200).json({ message: "Task completed successfully and counts updated!", isCompleted: isCompletedRating });
-                            }
-                        });
                     });
                 }
             } else {
