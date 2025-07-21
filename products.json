@@ -49,11 +49,12 @@
     "price": 120.00
   },
   {
-    "id": "prod008",
-    "name": "Gucci Blondie Leather-trimmed shoulder bag",
-    "image": "https://encrypted-tbn2.gstatic.com/shopping?q=tbn:ANd9GcQjTIfU1DRVvUD3BSFxSFArVjyH_-6QqRRN5u5ZPpaKODO22U_Kegr0htjriogqH4Voe36TGstybousIdV8cpMwkMS-721QY6qzF2raBtIHeB7mr3lM2aiYin5VmSrGU7rw37phn3U&usqp=CAc",
+    "id": "prod007",
+    "name": "Calvin Klein Shoulder bag",
+    "image": "https://www.bagage24.nl/out/pictures/generated/product/1/768_768_85/a6/96/c0/a9838d04aca905a3b00a7480ec17a40d_a696c0c57da9ab14d11218b414a950d3.jpg",
     "description": "Elegant Calvin Klein shoulder bag for your essentials.",
-    "price": 6000.00
+    "price": 120.00
   }
+  
   
 ]
