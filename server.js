@@ -1,8 +1,10 @@
 // your-project/server.js
 const express = require('express');
 const cors = require('cors');
-const http = require('http'); // FIX: Corrected this line
+const http = require('http');
 const { Server } = require('socket.io');
+const fs = require('fs'); // <--- Add this line to import the 'fs' module
+const path = require('path'); // <--- Add this line to import the 'path' module
 
 const authRoutes = require('./routes/auth.routes');
 const taskRoutes = require('./routes/task.routes');
@@ -22,22 +24,15 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// Define allowed origins for CORS.
-// In development, use localhost origins.
-// In production, you MUST replace these with your actual deployed frontend URLs.
-// Example: ['https://your-user-app.com', 'https://your-admin-app.com']
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
-        'https://shopify-clone-orpin.vercel.app', // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
-        'https://admin-backend-lake.vercel.app'  // <--- IMPORTANT: REPLACE THIS IN PRODUCTION
-        
+        'https://shopify-clone-orpin.vercel.app',
+        'https://admin-backend-lake.vercel.app'
       ]
     : ["http://localhost:3000", "http://localhost:3001"];
 
-// Configure CORS middleware for HTTP requests
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -45,22 +40,38 @@ app.use(cors({
     }
     return callback(null, true);
   },
-  methods: ["GET", "POST", "PUT", "DELETE"], // Ensure all methods your API uses are listed
-  credentials: true // Allow cookies/authorization headers to be sent
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
 }));
 
-// Configure Socket.IO server
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins, // Use the same allowed origins for Socket.IO
-    methods: ["GET", "POST"] // Methods allowed for WebSocket connections
+    origin: allowedOrigins,
+    methods: ["GET", "POST"]
   }
 });
 
-// Middleware
-app.use(express.json()); // This should be after cors() if you want to apply cors to json parsing errors too
+app.use(express.json());
 
-// Routes
+// --- New route to serve products from products.json ---
+app.get('/api/products', (req, res) => {
+  const productsFilePath = path.join(__dirname, 'products.json'); // Adjust path if products.json is in a subdirectory, e.g., 'data', then use: path.join(__dirname, 'data', 'products.json')
+  fs.readFile(productsFilePath, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Error reading products.json:', err);
+      return res.status(500).json({ message: 'Error loading products.' });
+    }
+    try {
+      const products = JSON.parse(data);
+      res.json(products);
+    } catch (parseErr) {
+      console.error('Error parsing products.json:', parseErr);
+      res.status(500).json({ message: 'Error parsing product data.' });
+    }
+  });
+});
+
+// Existing Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
@@ -69,7 +80,6 @@ app.use('/api/injection-plans', injectionPlanRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
@@ -97,17 +107,14 @@ io.on('connection', (socket) => {
           sender_role: senderRole,
           message_text: messageText,
           timestamp: new Date().toISOString(),
-          tempId: tempId // Include tempId in the emitted message
+          tempId: tempId
         };
 
-        // **Debug Log:** Verify the object being broadcasted
         console.log('BROADCASTING MESSAGE:', JSON.stringify(newMessage, null, 2));
 
-        // Broadcast to the user's private room and the general admin room
         io.to(`user-${userId}`).emit('receiveMessage', newMessage);
         io.to('admins').emit('receiveMessage', newMessage);
 
-        // If the user sent the message, notify admins of an unread conversation
         if (senderRole === 'user') {
             io.to('admins').emit('unreadConversationUpdate', { userId: userId, hasUnread: true });
         }
@@ -139,11 +146,9 @@ io.on('connection', (socket) => {
 });
 
 
-// Server start
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-// --- Payment Monitoring Loop ---
 setInterval(async () => {
   console.log('💲 Checking for payments...');
   try {

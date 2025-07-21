@@ -1,0 +1,52 @@
+[
+  {
+    "id": "prod001",
+    "name": "No Ball Pen 50PCS",
+    "image": "https://www.penstore.nl/image/cache/wp/gj/j/jherbin/jherbin_stylo_roller_white-175x175h.webp",
+    "description": "A pack of 50 high-quality no-ball pens for smooth writing.",
+    "price": 15.99
+  },
+  {
+    "id": "prod002",
+    "name": "Gucci Mini Skirt",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcThCsIiMiPHjbv9UB_-c1VKdc3-LLpBUaRPeA&s",
+    "description": "Stylish mini skirt from Gucci, perfect for any occasion.",
+    "price": 499.00
+  },
+  {
+    "id": "prod003",
+    "name": "Swim Suit",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRHn2y2L-QAcuyWPD1wbaSJ9yEywZvMn6wIag&s",
+    "description": "Comfortable and fashionable swimsuit for your beach days.",
+    "price": 35.50
+  },
+  {
+    "id": "prod004",
+    "name": "Balenciaga T-shirt",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyeN1m42JPG3L5-iYtStU9m5gsKIYLtFpnyg&s",
+    "description": "Premium Balenciaga t-shirt, a must-have for your wardrobe.",
+    "price": 250.00
+  },
+  {
+    "id": "prod005",
+    "name": "All-Star Sneakers",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTa2IyGZoq_6mPJHvxqlzuD9id32GAbj4mKCw&s",
+    "description": "Classic All-Star sneakers for everyday comfort and style.",
+    "price": 75.00
+  },
+  {
+    "id": "prod006",
+    "name": "Champions Hoodie",
+    "image": "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcQLyXrBuNSBLOwevSw07U89CPKb3fdz2pygY9SN1rXKFgEjjir97Hv2w4iRG5giQCxIuCsMMxQI_l4nHVpzAfAmQCFQXlNcqRfTH7PO5L6OFW-0UHKa_Xo68BdJtZ4rxsgwabdF9Vo&usqp=CAc",
+    "description": "Warm and cozy Champions hoodie for your casual days.",
+    "price": 60.00
+  },
+  {
+    "id": "prod007",
+    "name": "Calvin Klein Shoulder bag",
+    "image": "https://www.bagage24.nl/out/pictures/generated/product/1/768_768_85/a6/96/c0/a9838d04aca905a3b00a7480ec17a40d_a696c0c57da9ab14d11218b414a950d3.jpg",
+    "description": "Elegant Calvin Klein shoulder bag for your essentials.",
+    "price": 120.00
+  }
+  
+]
