@@ -49,12 +49,49 @@
     "price": 120.00
   },
   {
-    "id": "prod007",
-    "name": "Calvin Klein Shoulder bag",
-    "image": "https://www.bagage24.nl/out/pictures/generated/product/1/768_768_85/a6/96/c0/a9838d04aca905a3b00a7480ec17a40d_a696c0c57da9ab14d11218b414a950d3.jpg",
-    "description": "Elegant Calvin Klein shoulder bag for your essentials.",
+    "id": "prod008",
+    "name": "Gucci glasses GG1423O",
+    "image": "https://media.visio-net.com/oscommerce/images/viewerxxl_new/gucci-GG1548O-005-52_catxxl.jpg",
+    "description": "Havana (Shiny Dark Havana) Women Gucci Glass.",
     "price": 120.00
+  },
+  {
+    "id": "prod009",
+    "name": "Small Ophidia handbag",
+    "image": "https://ancote.com/sync/foto/34W---GUCCI---79524996IWG8745.JPG",
+    "description": "Small Ophidia handbag by GUCCI in brown cotton with brown leather trim, tala with GG Supreme motif",
+    "price": 2316.00
+  },
+  {
+    "id": "prod010",
+    "name": "New Balance",
+    "image": "https://www.thelittlegreenbag.nl/media/catalog/product/cache/66b839b2abf87faee0276aafe93cb9b6/n/e/new-balance-123454-wit_1_3.jpg",
+    "description": "IZ530 White",
+    "price": 75.00
+  },
+  {
+    "id": "prod011",
+    "name": "Rains",
+    "image": "https://www.thelittlegreenbag.nl/media/amasty/webp/catalog/product/cache/66b839b2abf87faee0276aafe93cb9b6/1/8/18130-03-1_jpg.webp",
+    "description": "Curve Jacket Green",
+    "price": 109.00
+  },
+  {
+    "id": "prod012",
+    "name": "adidas Unisex Defender 4.0 Gym Duffel Bag",
+    "image": "https://m.media-amazon.com/images/I/81cpLO14-9L._AC_SX679_.jpg",
+    "description": "for Men and Women, Black/White, Medium (66L)",
+    "price": 25.00
+  },
+  {
+    "id": "prod013",
+    "name": "adidas Unisex Defender 4.0 Gym Duffel Bag",
+    "image": "https://m.media-amazon.com/images/I/81cpLO14-9L._AC_SX679_.jpg",
+    "description": "for Men and Women, Black/White, Medium (66L)",
+    "price": 25.00
   }
+
+
   
   
 ]
