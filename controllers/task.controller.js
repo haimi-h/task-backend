@@ -131,6 +131,7 @@ exports.submitTaskRating = (req, res) => {
             }
 
             let message = "Rating submitted.";
+            
 
             if (isCompletedRating && currentUncompleted > 0) {
                 currentCompleted++;
