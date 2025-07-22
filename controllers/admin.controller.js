@@ -25,43 +25,37 @@ exports.checkAdminRole = (req, res, next) => {
  * This endpoint should be protected by checkAdminRole middleware.
  */
 exports.getAllUsers = (req, res) => {
-    console.log(`[Admin Controller - getAllUsers] Admin fetching all users.`);
-    // Get pagination and filter parameters
+    console.log(`[Admin Controller - getAllUsers] Admin User ID: ${req.user.id}`);
+    const filters = {
+        username: req.query.username,
+        phone: req.query.phone,
+        code: req.query.code,
+        wallet: req.query.wallet,
+    };
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const filters = {
-        username: req.query.username || '',
-        phone: req.query.phone || '',
-        code: req.query.code || '',
-        wallet: req.query.wallet || ''
-    };
-
-    Admin.getAllUsersForAdmin(filters, limit, offset, (err, results, totalCount) => {
+    Admin.getAllUsersForAdmin(filters, limit, offset, (err, users, totalCount) => {
         if (err) {
-            console.error("Error fetching all users for admin:", err);
+            console.error('Error fetching users:', err);
             return res.status(500).json({ message: "Failed to retrieve users." });
         }
-        res.status(200).json({
-            users: results,
-            totalUsers: totalCount,
-            currentPage: page,
-            totalPages: Math.ceil(totalCount / limit)
-        });
+        res.status(200).json({ users, totalCount, page, limit });
     });
 };
 
 /**
- * Updates a user's daily_orders count.
+ * Updates a user's daily orders.
  * This endpoint should be protected by checkAdminRole middleware.
+ * Expects { daily_orders: number } in req.body.
  */
 exports.updateUserDailyOrders = (req, res) => {
     const { userId } = req.params;
-    const { daily_orders } = req.body; // Expecting daily_orders to be sent
+    const { daily_orders } = req.body;
 
-    if (typeof daily_orders !== 'number' || daily_orders < 0) {
-        return res.status(400).json({ message: "Invalid daily orders value." });
+    if (daily_orders === undefined || daily_orders < 0) {
+        return res.status(400).json({ message: "Daily orders must be a non-negative number." });
     }
 
     Admin.updateUserDailyOrders(userId, daily_orders, (err, result) => {
@@ -79,130 +73,95 @@ exports.updateUserDailyOrders = (req, res) => {
 /**
  * Injects (adds) funds to a user's wallet balance.
  * This endpoint should be protected by checkAdminRole middleware.
+ * Expects { amount: number } in req.body.
  */
 exports.injectWallet = (req, res) => {
     const { userId } = req.params;
     const { amount } = req.body;
 
-    if (typeof amount !== 'number' || amount <= 0) {
-        return res.status(400).json({ message: "Invalid amount. Must be a positive number." });
+    if (amount === undefined || amount <= 0) {
+        return res.status(400).json({ message: "Amount must be a positive number." });
     }
 
-    Admin.injectWallet(userId, amount, (err, result) => {
+    Admin.injectWalletBalance(userId, amount, (err, result) => {
         if (err) {
             console.error(`Error injecting wallet for user ${userId}:`, err);
             return res.status(500).json({ message: "Failed to inject wallet balance." });
         }
         if (result.affectedRows === 0) {
-            return res.status(404).json({ message: "User not found or no changes made." });
+            return res.status(404).json({ message: "User not found." });
         }
-        res.status(200).json({ message: "Wallet balance injected successfully." });
+        res.status(200).json({ message: "Wallet balance updated successfully." });
     });
 };
 
 /**
- * UPDATED: Updates a user's full profile including wallet balance.
- * This will be called by the SettingModal.
+ * Updates a user's profile information, including wallet address and password.
+ * This endpoint should be protected by checkAdminRole middleware.
+ * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit.
  */
-exports.updateUserProfile = (req, res) => {
+exports.updateUserProfile = async (req, res) => {
     const { userId } = req.params;
-    // EXTENDED: Added wallet_balance to destructuring
-    const { username, phone, password, withdrawal_password, role, walletAddress, daily_orders, completed_orders, uncompleted_orders, wallet_balance } = req.body;
+    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; // ADDED: defaultTaskProfit
 
     const updates = {
         username,
         phone,
-        role,
         walletAddress,
-        daily_orders,
-        completed_orders,
-        uncompleted_orders,
-        wallet_balance, // ADDED: wallet_balance to updates object
+        defaultTaskProfit, // ADDED: defaultTaskProfit to updates object
     };
 
-    if (password) {
-        // Hash new password if provided
-        bcrypt.hash(password, 10, (err, hashedPassword) => {
-            if (err) {
-                console.error('Error hashing password:', err);
-                return res.status(500).json({ message: 'Failed to process password.' });
-            }
+    if (new_password) {
+        try {
+            // Hash the new password before storing it
+            const hashedPassword = await bcrypt.hash(new_password, 10);
             updates.password = hashedPassword;
-            // Proceed with update after hashing
-            Admin.updateUserProfile(userId, updates, (err, result) => {
-                if (err) {
-                    console.error(`Error updating user profile for user ${userId}:`, err);
-                    return res.status(500).json({ message: "Failed to update user profile." });
-                }
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({ message: "User not found or no changes made." });
-                }
-                res.status(200).json({ message: "User profile updated successfully." });
-            });
-        });
-    } else if (withdrawal_password) {
-         // Hash new withdrawal password if provided
-         bcrypt.hash(withdrawal_password, 10, (err, hashedWithdrawalPassword) => {
-            if (err) {
-                console.error('Error hashing withdrawal password:', err);
-                return res.status(500).json({ message: 'Failed to process withdrawal password.' });
-            }
-            updates.withdrawal_password = hashedWithdrawalPassword;
-            // Proceed with update after hashing
-            Admin.updateUserProfile(userId, updates, (err, result) => {
-                if (err) {
-                    console.error(`Error updating user profile for user ${userId}:`, err);
-                    return res.status(500).json({ message: "Failed to update user profile." });
-                }
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({ message: "User not found or no changes made." });
-                }
-                res.status(200).json({ message: "User profile updated successfully." });
-            });
-        });
+        } catch (error) {
+            console.error('Error hashing password:', error);
+            return res.status(500).json({ message: "Failed to process password." });
+        }
     }
-    else {
-        // If no password or withdrawal password is being changed, update directly
-        Admin.updateUserProfile(userId, updates, (err, result) => {
-            if (err) {
-                console.error(`Error updating user profile for user ${userId}:`, err);
-                return res.status(500).json({ message: "Failed to update user profile." });
-            }
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ message: "User not found or no changes made." });
-            }
-            res.status(200).json({ message: "User profile updated successfully." });
-        });
-    }
+
+    Admin.updateUserProfile(userId, updates, (err, result) => {
+        if (err) {
+            console.error(`Error updating user profile for user ${userId}:`, err);
+            return res.status(500).json({ message: "Failed to update user profile." });
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "User not found or no changes made." });
+        }
+        res.status(200).json({ message: "User profile updated successfully." });
+    });
 };
 
 /**
- * Generates and assigns a new wallet address to a specific user.
- * This will be called from the frontend when a user needs a wallet address assigned.
+ * Generates a new TRC20 wallet address and assigns it to a specific user.
+ * This endpoint should be protected by checkAdminRole middleware.
  */
 exports.generateAndAssignWallet = async (req, res) => {
     const { userId } = req.params;
-    console.log(`[Admin Controller - generateAndAssignWallet] Request to generate wallet for User ID: ${userId}`);
+
+    if (!tronWeb) {
+        return res.status(500).json({ error: 'TRON_WEB_HOST not configured. Cannot generate wallet.' });
+    }
 
     try {
-        // 1. Generate new TRON wallet
-        const newAccount = tronWeb.createAccount();
+        const newAccount = await tronWeb.createAccount();
         const walletAddress = newAccount.address.base58;
         const privateKey = newAccount.privateKey;
 
-        // 2. Assign wallet to user in DB
         Admin.assignWalletAddress(userId, walletAddress, privateKey, (err, result) => {
             if (err) {
-                console.error('Database error assigning wallet:', err);
-                return res.status(500).json({ message: 'Failed to assign wallet address in database.' });
+                console.error(`Error assigning wallet to user ${userId}:`, err);
+                return res.status(500).json({ message: "Failed to assign wallet address." });
             }
             if (result.affectedRows === 0) {
-                return res.status(404).json({ message: 'User not found or wallet already assigned.' });
+                return res.status(404).json({ message: "User not found or wallet already assigned." });
             }
             res.status(200).json({
-                message: 'Wallet address generated and assigned successfully!',
+                message: "Wallet address generated and assigned successfully.",
                 walletAddress: walletAddress,
-                privateKey: privateKey // In a real app, be very cautious about returning private key to client
+                // In a real app, be very cautious about returning private key to client
             });
         });
 
@@ -233,6 +192,7 @@ exports.deleteUser = (req, res) => {
             console.log(`[Admin Controller - deleteUser] User ${userId} not found.`);
             return res.status(404).json({ message: "User not found." });
         }
+        console.log(`[Admin Controller - deleteUser] Successfully deleted user ${userId}.`);
         res.status(200).json({ message: "User deleted successfully." });
     });
 };

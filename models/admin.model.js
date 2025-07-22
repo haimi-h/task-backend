@@ -27,115 +27,92 @@ const Admin = {
                 u.wallet_balance,   -- Keep this if it's the numerical app balance
                 u.walletAddress,    -- ADDED: to fetch the new wallet address column
                 u.role,
-                u.created_at
+                u.created_at,
+                u.default_task_profit -- ADDED: Default profit for a task
             FROM
                 users u
             LEFT JOIN
                 users r ON u.referrer_id = r.id
             WHERE 1=1
         `;
+        let countSql = `
+            SELECT COUNT(*) AS totalCount
+            FROM users u
+            WHERE 1=1
+        `;
         const params = [];
+        const countParams = [];
 
         if (filters.username) {
             sql += ` AND u.username LIKE ?`;
+            countSql += ` AND u.username LIKE ?`;
             params.push(`%${filters.username}%`);
+            countParams.push(`%${filters.username}%`);
         }
         if (filters.phone) {
             sql += ` AND u.phone LIKE ?`;
+            countSql += ` AND u.phone LIKE ?`;
             params.push(`%${filters.phone}%`);
+            countParams.push(`%${filters.phone}%`);
         }
         if (filters.code) {
             sql += ` AND u.invitation_code LIKE ?`;
+            countSql += ` AND u.invitation_code LIKE ?`;
             params.push(`%${filters.code}%`);
+            countParams.push(`%${filters.code}%`);
         }
         if (filters.wallet) {
             sql += ` AND u.walletAddress LIKE ?`;
+            countSql += ` AND u.walletAddress LIKE ?`;
             params.push(`%${filters.wallet}%`);
+            countParams.push(`%${filters.wallet}%`);
         }
 
-        const countSql = `SELECT COUNT(*) AS totalCount FROM (${sql}) AS subquery`;
-        
-        db.query(countSql, params, (err, countResult) => {
-            if (err) return callback(err, null, null);
+        sql += ` ORDER BY u.created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
 
+        db.query(countSql, countParams, (err, countResult) => {
+            if (err) {
+                return callback(err, null, 0);
+            }
             const totalCount = countResult[0].totalCount;
 
-            sql += ` ORDER BY u.created_at DESC LIMIT ? OFFSET ?`;
-            params.push(limit, offset);
-
             db.query(sql, params, (err, results) => {
-                if (err) return callback(err, null, null);
+                if (err) {
+                    return callback(err, null, 0);
+                }
                 callback(null, results, totalCount);
             });
         });
     },
 
+
     /**
      * Updates a user's daily_orders count.
-     * FIX: Also sets uncompleted_orders to the new daily_orders value when daily_orders are updated.
-     * This is a specific function for setting daily tasks.
+     * FIX: Also sets uncompleted_orders to daily_orders when updating to reflect new daily tasks.
      * @param {number} userId - The ID of the user to update.
-     * @param {number} dailyOrders - The new value for daily_orders.
+     * @param {number} newDailyOrders - The new value for daily_orders.
      * @param {function} callback - Callback function (err, result)
      */
-    updateUserDailyOrders: (userId, dailyOrders, callback) => {
+    updateUserDailyOrders: (userId, newDailyOrders, callback) => {
+        // When daily_orders are updated, uncompleted_orders should be reset to this new value
         const sql = `UPDATE users SET daily_orders = ?, uncompleted_orders = ? WHERE id = ?`;
-        db.query(sql, [dailyOrders, dailyOrders, userId], callback);
+        db.query(sql, [newDailyOrders, newDailyOrders, userId], callback);
     },
 
     /**
-     * Injects (adds) funds to a user's wallet balance.
-     * @param {number} userId - The ID of the user to inject funds for.
-     * @param {number} amount - The amount to add.
-     * @param {function} callback - Callback function (err, result)
-     */
-    injectWallet: (userId, amount, callback) => {
-        const sql = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`;
-        db.query(sql, [amount, userId], callback);
-    },
-
-    /**
-     * Assigns a newly generated wallet address and private key to a user.
-     * @param {number} userId - The ID of the user.
-     * @param {string} walletAddress - The generated wallet address.
-     * @param {string} privateKey - The private key associated with the wallet address.
-     * @param {function} callback - Callback function (err, result)
-     */
-    assignWalletAddress: (userId, walletAddress, privateKey, callback) => {
-        // IMPORTANT SECURITY NOTE: Storing private keys in your database is highly sensitive.
-        // Ensure your database is extremely secure and consider encryption for this field.
-        // For production, you might use a separate key management system or only store public addresses.
-        const sql = `
-            UPDATE users
-            SET walletAddress = ?,
-                privateKey = ? -- Assuming you added a privateKey column (VARCHAR)
-            WHERE id = ? AND (walletAddress IS NULL OR walletAddress = ''); -- Only update if not already set
-        `;
-        db.query(sql, [walletAddress, privateKey, userId], callback);
-    },
-
-    /**
-     * ADDED: Deletes a user from the database.
-     * @param {number} userId - The ID of the user to delete.
-     * @param {function} callback - Callback function (err, result)
-     */
-    deleteUser: (userId, callback) => {
-        // IMPORTANT: Consider foreign key constraints. If other tables reference this user,
-        // you might need to delete related records first or set up CASCADE DELETE in your DB schema.
-        const sql = `DELETE FROM users WHERE id = ?;`;
-        db.query(sql, [userId], callback);
-    },
-
-    /**
-     * NEW METHOD: Updates a user's profile based on provided fields.
-     * This method is designed to be flexible, updating only the fields provided in `updates`.
+     * Updates a user's profile information.
+     * Handles username, phone, password, wallet address, role, and various order counts.
+     * ADDED: wallet_balance to be updated.
+     * ADDED: default_task_profit for non-lucky orders.
+     *
      * @param {number} userId - The ID of the user to update.
-     * @param {object} updates - An object containing the fields to update (e.g., { username: 'newname', phone: 'newphone', wallet_balance: 100 }).
+     * @param {object} updates - An object containing fields to update (e.g., { username: 'newname', phone: '12345' }).
      * @param {function} callback - Callback function (err, result)
      */
     updateUserProfile: (userId, updates, callback) => {
-        let updateFields = [];
-        let params = [];
+        const updateFields = [];
+        const params = [];
 
         if (updates.username !== undefined) {
             updateFields.push('username = ?');
@@ -178,6 +155,12 @@ const Admin = {
             updateFields.push('wallet_balance = ?');
             params.push(updates.wallet_balance);
         }
+        // ADDED: default_task_profit update
+        if (updates.defaultTaskProfit !== undefined) {
+            updateFields.push('default_task_profit = ?');
+            params.push(updates.defaultTaskProfit);
+        }
+
 
         if (updateFields.length === 0) {
             return callback(null, { affectedRows: 0 }); // Nothing to update
@@ -187,6 +170,51 @@ const Admin = {
         params.push(userId);
 
         db.query(sql, params, callback);
+    },
+
+    /**
+     * Injects (adds) funds to a user's wallet balance.
+     * @param {number} userId - The ID of the user to update.
+     * @param {number} amount - The amount to add to the wallet balance.
+     * @param {function} callback - Callback function (err, result)
+     */
+    injectWalletBalance: (userId, amount, callback) => {
+        const sql = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`;
+        db.query(sql, [amount, userId], callback);
+    },
+
+    /**
+     * Assigns a newly generated TRC20 wallet address and its private key to a user.
+     * Only updates if walletAddress is not already set or is empty.
+     *
+     * @param {number} userId - The ID of the user to update.
+     * @param {string} walletAddress - The TRC20 wallet address.
+     * @param {string} privateKey - The private key associated with the wallet address.
+     * @param {function} callback - Callback function (err, result)
+     */
+    assignWalletAddress: (userId, walletAddress, privateKey, callback) => {
+        // IMPORTANT SECURITY NOTE: Storing private keys in your database is highly sensitive.
+        // Ensure your database is extremely secure and consider encryption for this field.
+        // For production, you might use a separate key management system or only store public addresses.
+        const sql = `
+            UPDATE users
+            SET walletAddress = ?,
+                privateKey = ? -- Assuming you added a privateKey column (VARCHAR)
+            WHERE id = ? AND (walletAddress IS NULL OR walletAddress = ''); -- Only update if not already set
+        `;
+        db.query(sql, [walletAddress, privateKey, userId], callback);
+    },
+
+    /**
+     * ADDED: Deletes a user from the database.
+     * @param {number} userId - The ID of the user to delete.
+     * @param {function} callback - Callback function (err, result)
+     */
+    deleteUser: (userId, callback) => {
+        // IMPORTANT: Consider foreign key constraints. If other tables reference this user,
+        // you might need to delete related records first or set up CASCADE DELETE in your DB schema.
+        const sql = `DELETE FROM users WHERE id = ?;`;
+        db.query(sql, [userId], callback);
     },
 };
 
