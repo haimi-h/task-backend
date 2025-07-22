@@ -31,27 +31,26 @@ const User = {
         const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
-                console.error(`[User Model - findById] Database error for User ${id}:`, err);
                 return callback(err);
             }
-            const user = results[0] || null;
-            console.log(`[User Model - findById] Fetched user data for ID ${id}:`, user);
-            callback(null, user);
+            callback(null, results[0]);
         });
     },
 
-    updateUserTaskCounts: (userId, completedCount, uncompletedCount, callback) => {
+    updateDailyAndUncompletedOrders: (userId, completedCount, uncompletedCount, callback) => {
         const sql = `
             UPDATE users
-            SET completed_orders = ?, uncompleted_orders = ?
+            SET completed_orders = ?,
+                uncompleted_orders = ?
             WHERE id = ?;
         `;
         db.query(sql, [completedCount, uncompletedCount, userId], callback);
     },
 
     /**
-     * NEW METHOD: Atomically updates a user's wallet balance and task counts.
+     * MODIFIED: Atomically updates a user's wallet balance and task counts.
      * This method is crucial for handling lucky order deductions and additions.
+     * It now also updates `daily_orders` to 0 if `uncompleted_orders` becomes 0.
      * @param {number} userId - The ID of the user to update.
      * @param {number} amount - The amount to add or deduct from the balance.
      * @param {string} type - 'add' or 'deduct'.
@@ -61,22 +60,31 @@ const User = {
      */
     updateBalanceAndTaskCount: (userId, amount, type, completedCount, uncompletedCount, callback) => {
         let sql;
-        if (type === 'add') {
-            sql = `
-                UPDATE users
-                SET wallet_balance = wallet_balance + ?, completed_orders = ?, uncompleted_orders = ?
-                WHERE id = ?;
-            `;
-        } else if (type === 'deduct') {
-            sql = `
-                UPDATE users
-                SET wallet_balance = wallet_balance - ?, completed_orders = ?, uncompleted_orders = ?
-                WHERE id = ?;
-            `;
-        } else {
+        // Determine the SQL query based on the type ('add' or 'deduct')
+        const balanceUpdate = (type === 'add') ? 'wallet_balance = wallet_balance + ?' :
+                              (type === 'deduct') ? 'wallet_balance = wallet_balance - ?' :
+                              null;
+
+        if (!balanceUpdate) {
             return callback(new Error('Invalid update type for balance.'), null);
         }
-        db.query(sql, [amount, completedCount, uncompletedCount, userId], callback);
+
+        // The daily_orders column will be set to 0 if uncompleted_orders is 0, otherwise it retains its current value.
+        sql = `
+            UPDATE users
+            SET
+                ${balanceUpdate},
+                completed_orders = ?,
+                uncompleted_orders = ?,
+                daily_orders = CASE
+                    WHEN ? = 0 THEN 0 -- If uncompleted_orders becomes 0, set daily_orders to 0
+                    ELSE daily_orders -- Otherwise, keep current daily_orders value
+                END
+            WHERE id = ?;
+        `;
+
+        // Parameters for the query: [amount, completedCount, uncompletedCount, uncompletedCount (for CASE), userId]
+        db.query(sql, [amount, completedCount, uncompletedCount, uncompletedCount, userId], callback);
     },
 };
 
