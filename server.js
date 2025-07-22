@@ -14,7 +14,8 @@ const injectionPlanRoutes = require('./routes/injectionPlan.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const chatRoutes = require('./routes/chat.routes');
 
-const { checkTRXPayment, checkUSDTTRC20Payment } = require('./paymentMonitor');
+// const { checkTRXPayment, checkUSDTTRC20Payment } = require('./paymentMonitor');
+const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
 const Admin = require('./models/admin.model');
 const ChatMessage = require('./models/chat.model');
@@ -149,24 +150,30 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
+// setInterval(async () => {
+//   console.log('💲 Checking for payments...');
+//   try {
+//     const usersToMonitor = await new Promise((resolve, reject) => {
+//         Admin.getAllUsersForAdmin((err, users) => {
+//             if (err) return reject(err);
+//             resolve(users.filter(user => user.walletAddress && user.walletAddress !== ''));
+//         });
+//     });
+
+//     for (const user of usersToMonitor) {
+//       if (user.walletAddress) {
+//         console.log(`Checking ${user.username}'s wallet: ${user.walletAddress}`);
+//         // await checkTRXPayment(user.walletAddress, user.id);
+//         // await checkUSDTTRC20Payment(user.walletAddress, user.id);
+//       }
+//     }
+//   } catch (error) {
+//     console.error('❌ Error in payment monitoring loop:', error);
+//   }
+// }, 30000);
 setInterval(async () => {
   console.log('💲 Checking for payments...');
-  try {
-    const usersToMonitor = await new Promise((resolve, reject) => {
-        Admin.getAllUsersForAdmin((err, users) => {
-            if (err) return reject(err);
-            resolve(users.filter(user => user.walletAddress && user.walletAddress !== ''));
-        });
-    });
-
-    for (const user of usersToMonitor) {
-      if (user.walletAddress) {
-        console.log(`Checking ${user.username}'s wallet: ${user.walletAddress}`);
-        // await checkTRXPayment(user.walletAddress, user.id);
-        // await checkUSDTTRC20Payment(user.walletAddress, user.id);
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error in payment monitoring loop:', error);
-  }
-}, 30000);
+  await checkTRXPayments();
+  // When you're ready for USDT, you'll add it here:
+  // await checkUSDTTRC20Payments();
+}, 15000);
