@@ -123,6 +123,24 @@ const Task = {
             if (err) return callback(err, 0);
             callback(null, results[0].total_products);
         });
+    },
+
+    /**
+     * NEW METHOD: Fetches the profit for a specific product.
+     * This is needed for standard (non-lucky) task completions.
+     * @param {number} productId - The ID of the product.
+     * @param {function} callback - Callback function (err, profit)
+     */
+    getProductProfit: (productId, callback) => {
+        const sql = `SELECT profit FROM products WHERE id = ?;`;
+        db.query(sql, [productId], (err, results) => {
+            if (err) {
+                console.error(`[Task Model - getProductProfit] Error fetching profit for Product ${productId}:`, err);
+                return callback(err, null);
+            }
+            // Return the profit, or null if product not found
+            callback(null, results.length > 0 ? results[0].profit : null);
+        });
     }
 };
 
