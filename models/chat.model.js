@@ -128,7 +128,7 @@ const ChatMessage = {
                 // If no messages exist, insert the initial welcome messages
                 const initialMessages = [
                     { sender_id: adminId, sender_role: 'admin', message_text: 'Welcome to customer service! How can I help you?' }, // MODIFIED: Use adminId
-                    { sender_id: adminId, sender_role: 'admin', message_text: `Your unique TRC20/TRX deposit address is: ${userWalletAddress || 'Not assigned yet. Please visit the payment page to generate it.'}` }, // MODIFIED: Use adminId
+                    // { sender_id: adminId, sender_role: 'admin', message_text: `Your unique TRC20/TRX deposit address is: ${userWalletAddress || 'Not assigned yet. Please visit the payment page to generate it.'}` }, // MODIFIED: Use adminId
                 ];
 
                 // Use a transaction or Promise.all for multiple inserts for atomicity
