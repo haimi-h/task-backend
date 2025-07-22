@@ -3,12 +3,94 @@ const db = require('./db'); // Ensure this path is correct to your database conn
 const bcrypt = require('bcryptjs'); // Assuming you use bcrypt for password hashing in controller
 
 const Admin = {
+    // ... (Your existing methods like getAllUsersForAdmin, updateUserDailyOrders, injectWalletBalance, etc.)
+
     /**
-     * Fetches a list of all users with relevant details for the admin table.
+     * Fetches a paginated list of users with relevant details for the admin table, applying filters.
      * Includes counts for daily, completed, and uncompleted orders, and wallet balance.
      * Also includes the username of the referrer if available.
      *
-     * @param {function} callback - Callback function (err, results)
+     * @param {Object} filters - An object containing filter criteria (e.g., { username: 'john', phone: '123' }).
+     * @param {number} skip - The number of records to skip for pagination (offset).
+     * @param {number} limit - The maximum number of records to return (limit).
+     * @returns {Promise<{users: Array, totalUsers: number}>} - A promise resolving to an object with paginated users and their total count.
+     */
+    getPaginatedUsersForAdmin: (filters, skip, limit) => {
+        return new Promise((resolve, reject) => {
+            let filterConditions = [];
+            let queryParams = [];
+
+            // Build filter conditions
+            if (filters.username) {
+                filterConditions.push("u.username LIKE ?");
+                queryParams.push(`%${filters.username}%`);
+            }
+            if (filters.phone) {
+                filterConditions.push("u.phone = ?");
+                queryParams.push(filters.phone);
+            }
+            if (filters.invitation_code) { // This maps to 'code' filter from frontend
+                filterConditions.push("u.invitation_code = ?");
+                queryParams.push(filters.invitation_code);
+            }
+            if (filters.walletAddress) { // This maps to 'wallet' filter from frontend
+                filterConditions.push("u.walletAddress = ?");
+                queryParams.push(filters.walletAddress);
+            }
+
+            const whereClause = filterConditions.length > 0 ? `WHERE ${filterConditions.join(' AND ')}` : '';
+
+            // 1. Query to get total count of users matching filters
+            const countSql = `SELECT COUNT(*) AS total FROM users u ${whereClause};`;
+            db.query(countSql, queryParams, (err, countResults) => {
+                if (err) {
+                    console.error("[Admin Model - getPaginatedUsersForAdmin] Error counting users:", err);
+                    return reject(err);
+                }
+                const totalUsers = countResults[0].total;
+
+                // 2. Query to get paginated users
+                const usersSql = `
+                    SELECT
+                        u.id,
+                        u.username,
+                        u.phone,
+                        u.invitation_code,
+                        r.username AS invited_by,
+                        u.daily_orders,
+                        u.completed_orders,
+                        u.uncompleted_orders,
+                        u.wallet_balance,
+                        u.walletAddress,
+                        u.role,
+                        u.created_at
+                    FROM
+                        users u
+                    LEFT JOIN
+                        users r ON u.referrer_id = r.id
+                    ${whereClause}
+                    ORDER BY u.created_at DESC -- Order by creation date, newest first
+                    LIMIT ? OFFSET ?;
+                `;
+                // Append limit and skip to the query parameters for the second query
+                const paginatedQueryParams = [...queryParams, limit, skip];
+
+                db.query(usersSql, paginatedQueryParams, (err, usersResults) => {
+                    if (err) {
+                        console.error("[Admin Model - getPaginatedUsersForAdmin] Error fetching paginated users:", err);
+                        return reject(err);
+                    }
+                    resolve({ users: usersResults, totalUsers: totalUsers });
+                });
+            });
+        });
+    },
+
+    // ... (Keep the rest of your existing Admin model methods below this)
+
+    /**
+     * Original getAllUsersForAdmin kept here for reference if other parts of code still use it directly
+     * It's recommended to replace direct calls to this with getPaginatedUsersForAdmin where pagination is needed.
      */
     getAllUsersForAdmin: (callback) => {
         const sql = `
@@ -17,18 +99,18 @@ const Admin = {
                 u.username,
                 u.phone,
                 u.invitation_code,
-                r.username AS invited_by, -- Get referrer's username
+                r.username AS invited_by,
                 u.daily_orders,
                 u.completed_orders,
                 u.uncompleted_orders,
-                u.wallet_balance,   -- Keep this if it's the numerical app balance
-                u.walletAddress,    -- ADDED: to fetch the new wallet address column
+                u.wallet_balance,
+                u.walletAddress,
                 u.role,
                 u.created_at
             FROM
                 users u
             LEFT JOIN
-                users r ON u.referrer_id = r.id; -- Join to get referrer's username
+                users r ON u.referrer_id = r.id;
         `;
         db.query(sql, callback);
     },
@@ -45,7 +127,7 @@ const Admin = {
         const sql = `
             UPDATE users
             SET daily_orders = ?,
-                uncompleted_orders = ? -- Set uncompleted to new daily orders
+                uncompleted_orders = ?
             WHERE id = ?;
         `;
         db.query(sql, [newDailyOrders, newDailyOrders, userId], (err, result) => {
@@ -85,7 +167,7 @@ const Admin = {
             if (err) {
                 return callback(err);
             }
-            callback(null, results[0]); // Return the first result (the user object)
+            callback(null, results[0]);
         });
     },
 
@@ -99,7 +181,6 @@ const Admin = {
         const fields = [];
         const values = [];
 
-        // Dynamically build the SET clause based on provided updateData
         if (updateData.username !== undefined) {
             fields.push('username = ?');
             values.push(updateData.username);
@@ -109,28 +190,25 @@ const Admin = {
             values.push(updateData.phone);
         }
         if (updateData.walletAddress !== undefined) {
-            fields.push('walletAddress = ?'); // Update the new column
+            fields.push('walletAddress = ?');
             values.push(updateData.walletAddress);
         }
-        if (updateData.password !== undefined) { // This should be the HASHED password
+        if (updateData.password !== undefined) {
             fields.push('password = ?');
             values.push(updateData.password);
         }
 
-        // If no fields are provided for update, return immediately
         if (fields.length === 0) {
-            return callback(null, { affectedRows: 0 }); // Indicate no changes were made
+            return callback(null, { affectedRows: 0 });
         }
 
-        // Construct the SQL query
         const sql = `
             UPDATE users
             SET ${fields.join(', ')}
             WHERE id = ?;
         `;
-        values.push(userId); // Add userId to the end of values for the WHERE clause
+        values.push(userId);
 
-        // Execute the query
         db.query(sql, values, callback);
     },
 
@@ -142,26 +220,21 @@ const Admin = {
      * @param {function} callback - Callback function (err, result)
      */
     assignWalletAddress: (userId, walletAddress, privateKey, callback) => {
-        // IMPORTANT SECURITY NOTE: Storing private keys in your database is highly sensitive.
-        // Ensure your database is extremely secure and consider encryption for this field.
-        // For production, you might use a separate key management system or only store public addresses.
         const sql = `
             UPDATE users
             SET walletAddress = ?,
-                privateKey = ? -- Assuming you added a privateKey column (VARCHAR)
-            WHERE id = ? AND (walletAddress IS NULL OR walletAddress = ''); -- Only update if not already set
+                privateKey = ?
+            WHERE id = ? AND (walletAddress IS NULL OR walletAddress = '');
         `;
         db.query(sql, [walletAddress, privateKey, userId], callback);
     },
 
     /**
-     * ADDED: Deletes a user from the database.
+     * Deletes a user from the database.
      * @param {number} userId - The ID of the user to delete.
      * @param {function} callback - Callback function (err, result)
      */
     deleteUser: (userId, callback) => {
-        // IMPORTANT: Consider foreign key constraints. If other tables reference this user,
-        // you might need to delete related records first or set up CASCADE DELETE in your DB schema.
         const sql = `DELETE FROM users WHERE id = ?;`;
         db.query(sql, [userId], callback);
     },

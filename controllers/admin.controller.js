@@ -1,15 +1,13 @@
 const Admin = require('../models/admin.model');
-const User = require('../models/user.model'); // Ensure this imports your main User model if different
+const User = require('../models/user.model');
 const Task = require('../models/task.model');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs'); // Assuming you use bcrypt for password hashing
-const tronWeb = require('../tron'); // Import tronWeb for wallet generation
+const bcrypt = require('bcryptjs');
+const tronWeb = require('../tron');
 require('dotenv').config();
 
 /**
  * Middleware to check if the authenticated user has an 'admin' role.
- * This will be used to protect all admin routes.
- * Assumes req.user is populated by authenticateToken middleware.
  */
 exports.checkAdminRole = (req, res, next) => {
     console.log(`[Admin Controller - checkAdminRole] User ID: ${req.user ? req.user.id : 'N/A'}, Role: ${req.user ? req.user.role : 'N/A'}`);
@@ -21,19 +19,34 @@ exports.checkAdminRole = (req, res, next) => {
 };
 
 /**
- * Fetches all users for the admin dashboard.
+ * Fetches all users for the admin dashboard with pagination and filtering.
  * This endpoint should be protected by checkAdminRole middleware.
  */
-exports.getAllUsers = (req, res) => {
-    console.log(`[Admin Controller - getAllUsers] Fetching all users for admin.`);
-    Admin.getAllUsersForAdmin((err, users) => {
-        if (err) {
-            console.error('Error fetching users for admin:', err);
-            return res.status(500).json({ message: "Failed to retrieve users.", error: err.message });
-        }
+exports.getAllUsers = async (req, res) => { // Made async to use await
+    console.log(`[Admin Controller - getAllUsers] Fetching users for admin with filters:`, req.query);
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        // Build filter object from query parameters
+        const filters = {};
+        if (req.query.username) filters.username = req.query.username;
+        if (req.query.phone) filters.phone = req.query.phone;
+        if (req.query.code) filters.invitation_code = req.query.code;
+        if (req.query.wallet) filters.walletAddress = req.query.wallet;
+
+        // Call the new model method to get paginated users and total count
+        const { users, totalUsers } = await Admin.getPaginatedUsersForAdmin(filters, skip, limit); // Calling new model method
+
         // If successful, users array will contain the walletAddress field due to model update
-        res.json(users);
-    });
+        // Send the response in the expected format: { users: [], totalUsers: N }
+        res.json({ users, totalUsers });
+
+    } catch (error) {
+        console.error('Error fetching users for admin:', error);
+        res.status(500).json({ message: "Failed to retrieve users.", error: error.message });
+    }
 };
 
 /**
@@ -147,12 +160,10 @@ exports.generateAndAssignWallet = async (req, res) => {
     console.log(`[Admin Controller - generateAndAssignWallet] Request to generate and assign wallet for User ID: ${userId}`);
 
     try {
-        // 1. Generate a new Tron account (address + private key)
         const account = await tronWeb.createAccount();
         const newWalletAddress = account.address.base58;
         const newPrivateKey = account.privateKey;
 
-        // 2. Assign this generated address and private key to the user in the database
         Admin.assignWalletAddress(userId, newWalletAddress, newPrivateKey, (err, result) => {
             if (err) {
                 console.error(`Error assigning wallet to user ${userId}:`, err);
@@ -183,7 +194,6 @@ exports.deleteUser = (req, res) => {
     Admin.deleteUser(userId, (err, result) => {
         if (err) {
             console.error(`Error deleting user ${userId}:`, err);
-            // Check for specific foreign key constraint error (e.g., MySQL error code 1451)
             if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.errno === 1451) {
                 return res.status(409).json({ message: "Cannot delete user: related records exist in other tables. Please delete them first or configure CASCADE DELETE." });
             }
