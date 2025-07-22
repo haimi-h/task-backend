@@ -1,7 +1,7 @@
 const Task = require('../models/task.model');
 const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model'); // Assuming you have this model
-// const Product = require('../models/product.model'); // Assuming you have a Product model
+// const Product = require('../models/product.model'); // No longer needed here as per previous discussion
 const { io } = require('../server'); // Assuming 'io' can be imported or passed (see server.js update below)
 
 exports.getTask = (req, res) => {
@@ -52,8 +52,9 @@ exports.getTask = (req, res) => {
 
             if (matchingInjectionPlan) {
                 isLuckyOrder = true;
-                luckyOrderCapitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
-                luckyOrderProfit = parseFloat(matchingInjectionPlan.commission_rate);
+                // Ensure these are parsed as floats
+                luckyOrderCapitalRequired = parseFloat(matchingInjectionPlan.injections_amount) || 0;
+                luckyOrderProfit = parseFloat(matchingInjectionPlan.commission_rate) || 0;
                 console.log(`[Task Controller - getTask] Lucky order found for user ${userId} at task ${nextTaskNumber}. Capital: ${luckyOrderCapitalRequired}, Profit: ${luckyOrderProfit}`);
             }
 
@@ -74,10 +75,10 @@ exports.getTask = (req, res) => {
                     name: task.name,
                     image_url: task.image_url || task.image, // Use image_url or image based on your product schema
                     description: task.description,
-                    price: task.price,
-                    // Apply lucky order capital/profit if applicable
-                    capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (task.capital_required || 0),
-                    profit: isLuckyOrder ? luckyOrderProfit : (task.profit || 0)
+                    price: parseFloat(task.price) || 0, // Ensure price is a float
+                    // Apply lucky order capital/profit if applicable, ensuring they are floats
+                    capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
+                    profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(task.profit) || 0)
                 };
 
                 console.log(`[Task Controller - getTask] User ${userId} - Task fetched:`, taskToSend.name, "Is Lucky Order:", isLuckyOrder);
@@ -85,7 +86,7 @@ exports.getTask = (req, res) => {
                 // Send the full response including taskCount and lucky order details
                 res.status(200).json({
                     task: taskToSend,
-                    balance: user.wallet_balance || 0, // Assuming user.wallet_balance holds the balance
+                    balance: parseFloat(user.wallet_balance) || 0, // Ensure balance is a float
                     taskCount: currentCompletedTasks, // Send the current completed task count
                     isLuckyOrder: isLuckyOrder,
                     luckyOrderCapitalRequired: luckyOrderCapitalRequired
@@ -97,10 +98,6 @@ exports.getTask = (req, res) => {
 
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
-    // Expect new fields from frontend for lucky orders
-    // Note: The frontend sends `capitalRequired` and `profitAmount` as `capitalRequired` and `profitAmount`
-    // but the backend expects `commissionRate` for the lucky order profit.
-    // Let's adjust the backend to expect `profitAmount` for lucky orders.
     const { productId, rating, isLuckyOrder, capitalRequired, profitAmount } = req.body;
     console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}. Lucky Order: ${isLuckyOrder}, Capital: ${capitalRequired}, Profit: ${profitAmount}`);
 
@@ -138,14 +135,15 @@ exports.submitTaskRating = (req, res) => {
 
                 if (isLuckyOrder) {
                     const parsedCapitalRequired = parseFloat(capitalRequired);
-                    const parsedProfitAmount = parseFloat(profitAmount); // Use profitAmount from frontend
+                    const parsedProfitAmount = parseFloat(profitAmount);
 
                     if (isNaN(parsedCapitalRequired) || parsedCapitalRequired <= 0 ||
                         isNaN(parsedProfitAmount) || parsedProfitAmount <= 0) {
                         return res.status(400).json({ message: "Invalid capital or profit amount for lucky order." });
                     }
 
-                    if (user.wallet_balance < parsedCapitalRequired) {
+                    // Ensure user.wallet_balance is treated as a float for comparison
+                    if (parseFloat(user.wallet_balance) < parsedCapitalRequired) {
                         // User doesn't have enough balance for lucky order
                         console.log(`User ${userId} - Insufficient balance for lucky order: ${user.wallet_balance} < ${parsedCapitalRequired}`);
                         return res.status(400).json({ message: "Insufficient balance for this lucky order.", isCompleted: false });
@@ -161,7 +159,14 @@ exports.submitTaskRating = (req, res) => {
 
                         // Emit balance update to frontend immediately after deduction
                         if (io) {
-                            io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: user.wallet_balance - parsedCapitalRequired });
+                            // Send the new balance after deduction
+                            User.findById(userId, (fetchUserErr, updatedUser) => {
+                                if (!fetchUserErr && updatedUser) {
+                                    io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: parseFloat(updatedUser.wallet_balance) || 0 });
+                                } else {
+                                    console.error("Error fetching updated user balance for socket emit after deduction:", fetchUserErr);
+                                }
+                            });
                         }
 
                         message = "Lucky task submitted! Capital deducted. Profit will be credited shortly.";
@@ -183,9 +188,9 @@ exports.submitTaskRating = (req, res) => {
                                         // Fetch latest user balance after credit to ensure accuracy
                                         User.findById(userId, (fetchUserErr, updatedUser) => {
                                             if (!fetchUserErr && updatedUser) {
-                                                io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: updatedUser.wallet_balance });
+                                                io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: parseFloat(updatedUser.wallet_balance) || 0 });
                                             } else {
-                                                console.error("Error fetching updated user balance for socket emit:", fetchUserErr);
+                                                console.error("Error fetching updated user balance for socket emit after credit:", fetchUserErr);
                                             }
                                         });
                                     }
@@ -193,7 +198,6 @@ exports.submitTaskRating = (req, res) => {
                             });
                             // IMPORTANT: Mark the injection plan as used/completed here
                             // Assuming you have a way to identify and update the specific injection plan
-                            // For example:
                             InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr, markResult) => {
                                 if (markErr) {
                                     console.error(`Error marking injection plan for user ${userId} task ${nextTaskNumber} as used:`, markErr);
@@ -206,13 +210,12 @@ exports.submitTaskRating = (req, res) => {
                     });
                 } else {
                     // Standard 5-star rating: only update task counts and add regular profit
-                    // You need to get the profit for the standard product here
                     Task.getProductProfit(productId, (profitErr, productProfit) => { // Assuming a method to get product profit
                         if (profitErr) {
                             console.error("Error fetching product profit:", profitErr);
                             return res.status(500).json({ message: "Failed to get product profit.", error: profitErr.message });
                         }
-                        const profitToAdd = productProfit || 0; // Default to 0 if no profit found
+                        const profitToAdd = parseFloat(productProfit) || 0; // Ensure profit is a float
 
                         User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr, updateResult) => {
                             if (updateErr) {
@@ -224,7 +227,7 @@ exports.submitTaskRating = (req, res) => {
                                 if (io) {
                                      User.findById(userId, (fetchUserErr, updatedUser) => {
                                         if (!fetchUserErr && updatedUser) {
-                                            io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: updatedUser.wallet_balance });
+                                            io.to(`user-${userId}`).emit('balanceUpdate', { newBalance: parseFloat(updatedUser.wallet_balance) || 0 });
                                         } else {
                                             console.error("Error fetching updated user balance for socket emit:", fetchUserErr);
                                         }
