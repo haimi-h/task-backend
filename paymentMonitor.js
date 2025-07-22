@@ -37,6 +37,7 @@ async function checkTRXPayments() {
               [tx.id]
             );
 
+            
             // 4. If both queries succeed, commit the transaction
             await db.promise().commit();
             console.log(`[Monitor] Successfully credited ${tx.amount_expected} TRX to user ${tx.user_id} and closed transaction ${tx.id}.`);
