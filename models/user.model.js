@@ -27,8 +27,8 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // MODIFIED: Ensure completed_orders and uncompleted_orders are explicitly selected
-        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role, default_task_profit FROM users WHERE id = ?";
+        // MODIFIED: Ensure withdrawal_password is explicitly selected
+        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 return callback(err);

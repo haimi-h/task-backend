@@ -41,7 +41,6 @@ exports.getAllUsers = (req, res) => {
             console.error('Error fetching users:', err);
             return res.status(500).json({ message: "Failed to retrieve users." });
         }
-        // res.status(200).json({ users, totalCount, page, limit });
         res.status(200).json({ users, totalUsers: totalCount, page, limit });
 
     });
@@ -98,14 +97,14 @@ exports.injectWallet = (req, res) => {
 };
 
 /**
- * Updates a user's profile information, including wallet address and password.
+ * Updates a user's profile information, including wallet address, login password, and withdrawal password.
  * This endpoint should be protected by checkAdminRole middleware.
- * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit.
+ * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit, new_withdrawal_password.
  */
 exports.updateUserProfile = async (req, res) => {
     const { userId } = req.params;
-    // Destructure defaultTaskProfit (camelCase) from the request body
-    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; 
+    // Destructure new_withdrawal_password from the request body
+    const { username, phone, new_password, walletAddress, defaultTaskProfit, new_withdrawal_password } = req.body; 
 
     const updateData = {}; // Use updateData to build the object for the User.updateProfile method
 
@@ -114,19 +113,32 @@ exports.updateUserProfile = async (req, res) => {
     if (phone !== undefined) updateData.phone = phone;
     if (walletAddress !== undefined) updateData.walletAddress = walletAddress;
 
-    // --- CRITICAL FIX: Map frontend's camelCase to DB's snake_case ---
+    // Map frontend's camelCase to DB's snake_case for default_task_profit
     if (defaultTaskProfit !== undefined) {
         updateData.default_task_profit = parseFloat(defaultTaskProfit) || 0; // Store as snake_case in DB
     }
 
+    // Handle login password update if provided
     if (new_password) {
         try {
             // Hash the new password before storing it
             const hashedPassword = await bcrypt.hash(new_password, 10);
             updateData.password = hashedPassword; // Assuming 'password' is the column in your users table
         } catch (error) {
-            console.error('Error hashing password:', error);
-            return res.status(500).json({ message: "Failed to process password." });
+            console.error('Error hashing login password:', error);
+            return res.status(500).json({ message: "Failed to process login password." });
+        }
+    }
+
+    // NEW: Handle withdrawal password update if provided
+    if (new_withdrawal_password) {
+        try {
+            // Hash the new withdrawal password before storing it
+            const hashedWithdrawalPassword = await bcrypt.hash(new_withdrawal_password, 10);
+            updateData.withdrawal_password = hashedWithdrawalPassword; // Assuming 'withdrawal_password' is the column in your users table
+        } catch (error) {
+            console.error('Error hashing withdrawal password:', error);
+            return res.status(500).json({ message: "Failed to process withdrawal password." });
         }
     }
 
