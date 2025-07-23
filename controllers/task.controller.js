@@ -21,20 +21,25 @@ exports.getTask = (req, res) => {
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
-        const currentCompletedTasks = parseInt(user.completed_orders || 0);
-        const dailyLimit = parseInt(user.daily_orders || 0);
+        const currentCompletedTasks = parseInt(user.completed_orders || 0, 10);
+        const dailyLimit = parseInt(user.daily_orders || 0, 10);
+        const currentUncompletedTasks = parseInt(user.uncompleted_orders || 0, 10); // Get uncompleted tasks
 
-        console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}`);
+        console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}, Current Uncompleted: ${currentUncompletedTasks}`);
 
-        if (currentCompletedTasks >= dailyLimit) {
-            console.log(`[Task Controller - getTask] User ${userId} has completed all their daily tasks.`);
+        // MODIFIED LOGIC: Block user only if uncompleted_orders is 0.
+        // This means they have finished their current daily allocation.
+        if (currentUncompletedTasks <= 0) {
+            console.log(`[Task Controller - getTask] User ${userId} has completed all their currently assigned daily tasks (uncompleted_orders is 0).`);
+            // The message should reflect that they've completed their *assigned* daily tasks,
+            // not necessarily all tasks they *could* ever do.
             return res.status(200).json({ message: "You have completed all your daily tasks.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
         }
 
         let isLuckyOrder = false;
         let luckyOrderCapitalRequired = 0;
         let luckyOrderProfit = 0;
-        const nextTaskNumber = currentCompletedTasks + 1;
+        const nextTaskNumber = currentCompletedTasks + 1; // This still tracks cumulative tasks for lucky orders
 
         InjectionPlan.findByUserId(userId, (planErr, injectionPlans) => {
             if (planErr) {
