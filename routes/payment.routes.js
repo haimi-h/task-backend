@@ -1,11 +1,11 @@
-// PATCHED: payment.routes.js (Only the /recharge route)
+// UPDATED: payment.routes.js with CoinGecko fallback + warmup route
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const authenticateToken = require('../middleware/auth.middleware');
 const db = require('../models/db');
 
-// Warm-up ping route for client to call before sensitive POSTs
+// Warm-up ping route to wake up Render server before sensitive operations
 router.get('/ping', (req, res) => {
   res.send('pong');
 });
@@ -22,25 +22,22 @@ router.post('/recharge', authenticateToken, async (req, res) => {
   let trxPriceInUsd;
 
   try {
-    // Retry CoinGecko fetch up to 3 times
-    for (let i = 0; i < 3; i++) {
-      try {
-        const priceResponse = await axios.get(
-          'https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=usd'
-        );
-        trxPriceInUsd = priceResponse.data?.tron?.usd;
-        if (trxPriceInUsd) break;
-      } catch (err) {
-        console.warn(`[Recharge] TRX price fetch attempt ${i + 1} failed.`);
-        await new Promise((res) => setTimeout(res, 1000)); // wait before retry
-      }
-    }
+    console.log('[Recharge] Fetching TRX price from CoinGecko...');
+    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=usd');
+    console.log('[CoinGecko] Raw response:', response.data);
 
-    if (!trxPriceInUsd) {
-      console.error('[Recharge] Could not fetch TRX price after 3 attempts.');
-      return res.status(503).json({ message: 'Could not retrieve TRX price. Try again shortly.' });
-    }
+    trxPriceInUsd = response.data?.tron?.usd;
 
+    if (!trxPriceInUsd || typeof trxPriceInUsd !== 'number') {
+      console.warn('[CoinGecko] Invalid or missing TRX price, using fallback.');
+      trxPriceInUsd = 0.30; // fallback price
+    }
+  } catch (err) {
+    console.error('[CoinGecko] API call failed, using fallback. Error:', err.message);
+    trxPriceInUsd = 0.30; // fallback price
+  }
+
+  try {
     const requiredTrxAmount = (numericUsdAmount / trxPriceInUsd).toFixed(6);
 
     const [userRows] = await db.promise().query('SELECT walletAddress FROM users WHERE id = ?', [userId]);
@@ -51,7 +48,6 @@ router.post('/recharge', authenticateToken, async (req, res) => {
 
     const depositAddress = user.walletAddress;
 
-    // Insert into recharge_transactions
     const insertSql = `
       INSERT INTO recharge_transactions (user_id, amount_expected, currency, to_address, status)
       VALUES (?, ?, ?, ?, ?)
