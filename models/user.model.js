@@ -27,8 +27,7 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // Include wallet_balance, walletAddress, and privateKey in the SELECT statement
-        // --- IMPORTANT: Ensure default_task_profit is included in this SELECT ---
+        // MODIFIED: Ensure completed_orders and uncompleted_orders are explicitly selected
         const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role, default_task_profit FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
@@ -75,8 +74,8 @@ const User = {
             UPDATE users
             SET
                 ${balanceUpdate},
-                completed_orders = ?,
-                uncompleted_orders = ?,
+                completed_orders = ?,\
+                uncompleted_orders = ?,\
                 daily_orders = CASE
                     WHEN ? = 0 THEN 0 -- If uncompleted_orders becomes 0, set daily_orders to 0
                     ELSE daily_orders -- Otherwise, keep current daily_orders value
