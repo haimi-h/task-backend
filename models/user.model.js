@@ -28,7 +28,8 @@ const User = {
 
     findById: (id, callback) => {
         // Include wallet_balance, walletAddress, and privateKey in the SELECT statement
-        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role FROM users WHERE id = ?";
+        // --- IMPORTANT: Ensure default_task_profit is included in this SELECT ---
+        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, role, default_task_profit FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 return callback(err);
@@ -86,6 +87,35 @@ const User = {
         // Parameters for the query: [amount, completedCount, uncompletedCount, uncompletedCount (for CASE), userId]
         db.query(sql, [amount, completedCount, uncompletedCount, uncompletedCount, userId], callback);
     },
+
+    /**
+     * NEW METHOD: Updates a user's profile with provided data.
+     * This is a general-purpose update function.
+     * @param {number} userId - The ID of the user to update.
+     * @param {object} userData - An object containing the fields to update (e.g., { username: 'newname', default_task_profit: 35.00 }).
+     * @param {function} callback - Callback function (err, result)
+     */
+    updateProfile: (userId, userData, callback) => {
+        const fields = [];
+        const values = [];
+
+        // Build the SET clause dynamically based on provided userData
+        for (const key in userData) {
+            if (userData.hasOwnProperty(key)) {
+                fields.push(`${key} = ?`);
+                values.push(userData[key]);
+            }
+        }
+
+        if (fields.length === 0) {
+            return callback(new Error('No fields provided for update.'), null);
+        }
+
+        const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+        values.push(userId); // Add userId to the end of values for the WHERE clause
+
+        db.query(sql, values, callback);
+    }
 };
 
 module.exports = User;

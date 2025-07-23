@@ -1,5 +1,5 @@
 const Admin = require('../models/admin.model');
-const User = require('../models/user.model'); // Ensure this imports your main User model if different
+const User = require('../models/user.model'); // Ensure this imports your main User model
 const Task = require('../models/task.model');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); // Assuming you use bcrypt for password hashing
@@ -102,30 +102,37 @@ exports.injectWallet = (req, res) => {
  */
 exports.updateUserProfile = async (req, res) => {
     const { userId } = req.params;
-    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; // ADDED: defaultTaskProfit
+    // Destructure defaultTaskProfit (camelCase) from the request body
+    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; 
 
-    const updates = {
-        username,
-        phone,
-        walletAddress,
-        defaultTaskProfit, // ADDED: defaultTaskProfit to updates object
-    };
+    const updateData = {}; // Use updateData to build the object for the User.updateProfile method
+
+    // Conditionally add fields to updateData if they are provided
+    if (username !== undefined) updateData.username = username;
+    if (phone !== undefined) updateData.phone = phone;
+    if (walletAddress !== undefined) updateData.walletAddress = walletAddress;
+
+    // --- CRITICAL FIX: Map frontend's camelCase to DB's snake_case ---
+    if (defaultTaskProfit !== undefined) {
+        updateData.default_task_profit = parseFloat(defaultTaskProfit) || 0; // Store as snake_case in DB
+    }
 
     if (new_password) {
         try {
             // Hash the new password before storing it
             const hashedPassword = await bcrypt.hash(new_password, 10);
-            updates.password = hashedPassword;
+            updateData.password = hashedPassword; // Assuming 'password' is the column in your users table
         } catch (error) {
             console.error('Error hashing password:', error);
             return res.status(500).json({ message: "Failed to process password." });
         }
     }
 
-    Admin.updateUserProfile(userId, updates, (err, result) => {
+    // Call the general updateProfile method from the User model
+    User.updateProfile(userId, updateData, (err, result) => {
         if (err) {
             console.error(`Error updating user profile for user ${userId}:`, err);
-            return res.status(500).json({ message: "Failed to update user profile." });
+            return res.status(500).json({ message: err.message || "Failed to update user profile." });
         }
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "User not found or no changes made." });
