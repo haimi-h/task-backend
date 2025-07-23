@@ -70,8 +70,8 @@ exports.getTask = (req, res) => {
                     description: task.description,
                     price: parseFloat(task.price) || 0,
                     capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
-                    // --- THIS IS THE CORRECTED LINE ---
-                    profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.default_task_profit) || parseFloat(task.profit) || 0)
+                    // --- CORRECTED LINE: Changed user.default_task_profit to user.defaultTaskProfit ---
+                    profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.defaultTaskProfit) || parseFloat(task.profit) || 0)
                 };
 
                 console.log(`[Task Controller - getTask] User ${userId} - Task fetched: ${taskToSend.name}, Is Lucky Order: ${isLuckyOrder}, Profit: ${taskToSend.profit}`);
@@ -159,8 +159,9 @@ exports.submitTaskRating = (req, res) => {
                     } else {
                         // It's a standard order
                         let profitToAdd = 0;
-                        if (user.default_task_profit) {
-                            profitToAdd = parseFloat(user.default_task_profit);
+                        // --- CORRECTED LINE: Changed user.default_task_profit to user.defaultTaskProfit ---
+                        if (user.defaultTaskProfit) { 
+                            profitToAdd = parseFloat(user.defaultTaskProfit);
                         } else {
                             Task.getProductProfit(productId, (profitErr, productProfit) => {
                                 if (!profitErr && productProfit) {
