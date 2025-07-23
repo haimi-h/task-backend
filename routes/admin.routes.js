@@ -10,8 +10,8 @@ const authenticateToken = require('../middleware/auth.middleware'); // Your exis
 router.get('/users', authenticateToken, adminController.checkAdminRole, adminController.getAllUsers);
 
 // Route to update a user's daily orders (for the "APPLY" functionality)
-// Example: PUT /api/admin/users/:userId
-router.put('/users/:userId', authenticateToken, adminController.checkAdminRole, adminController.updateUserDailyOrders);
+// MODIFIED: Changed the route path to match the frontend's call
+router.put('/users/:userId/daily-orders', authenticateToken, adminController.checkAdminRole, adminController.updateUserDailyOrders);
 
 // Route to inject (add) funds to a user's wallet balance
 // Example: POST /api/admin/users/inject/:userId
