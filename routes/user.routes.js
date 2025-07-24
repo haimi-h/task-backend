@@ -16,6 +16,7 @@ router.get('/my-referrals', authenticateToken, userController.getMyReferrals);
 // ADDED: Route to get the profile of the currently logged-in user
 // This route will be used by the ChatWidget to fetch the user's wallet address.
 router.get('/me', authenticateToken, userController.getLoggedInUser);
+router.post('/set-withdrawal-address', authenticateToken, userController.setWithdrawalWalletAddress);
 
 // NEW: Route to initiate a cryptocurrency withdrawal
 router.post('/withdraw', authenticateToken, withdrawalController.initiateWithdrawal);
