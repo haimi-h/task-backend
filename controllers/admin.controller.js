@@ -1,5 +1,5 @@
 const Admin = require('../models/admin.model');
-const User = require('../models/user.model'); // Ensure this imports your main User model
+const User = require('../models/user.model'); // Ensure this imports your main User model if different
 const Task = require('../models/task.model');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); // Assuming you use bcrypt for password hashing
@@ -41,8 +41,7 @@ exports.getAllUsers = (req, res) => {
             console.error('Error fetching users:', err);
             return res.status(500).json({ message: "Failed to retrieve users." });
         }
-        res.status(200).json({ users, totalUsers: totalCount, page, limit });
-
+        res.status(200).json({ users, totalCount, page, limit });
     });
 };
 
@@ -97,56 +96,36 @@ exports.injectWallet = (req, res) => {
 };
 
 /**
- * Updates a user's profile information, including wallet address, login password, and withdrawal password.
+ * Updates a user's profile information, including wallet address and password.
  * This endpoint should be protected by checkAdminRole middleware.
- * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit, new_withdrawal_password.
+ * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit.
  */
 exports.updateUserProfile = async (req, res) => {
     const { userId } = req.params;
-    // Destructure new_withdrawal_password from the request body
-    const { username, phone, new_password, walletAddress, defaultTaskProfit, new_withdrawal_password } = req.body; 
+    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; // ADDED: defaultTaskProfit
 
-    const updateData = {}; // Use updateData to build the object for the User.updateProfile method
+    const updates = {
+        username,
+        phone,
+        walletAddress,
+        defaultTaskProfit, // ADDED: defaultTaskProfit to updates object
+    };
 
-    // Conditionally add fields to updateData if they are provided
-    if (username !== undefined) updateData.username = username;
-    if (phone !== undefined) updateData.phone = phone;
-    if (walletAddress !== undefined) updateData.walletAddress = walletAddress;
-
-    // Map frontend's camelCase to DB's snake_case for default_task_profit
-    if (defaultTaskProfit !== undefined) {
-        updateData.default_task_profit = parseFloat(defaultTaskProfit) || 0; // Store as snake_case in DB
-    }
-
-    // Handle login password update if provided
     if (new_password) {
         try {
             // Hash the new password before storing it
             const hashedPassword = await bcrypt.hash(new_password, 10);
-            updateData.password = hashedPassword; // Assuming 'password' is the column in your users table
+            updates.password = hashedPassword;
         } catch (error) {
-            console.error('Error hashing login password:', error);
-            return res.status(500).json({ message: "Failed to process login password." });
+            console.error('Error hashing password:', error);
+            return res.status(500).json({ message: "Failed to process password." });
         }
     }
 
-    // NEW: Handle withdrawal password update if provided
-    if (new_withdrawal_password) {
-        try {
-            // Hash the new withdrawal password before storing it
-            const hashedWithdrawalPassword = await bcrypt.hash(new_withdrawal_password, 10);
-            updateData.withdrawal_password = hashedWithdrawalPassword; // Assuming 'withdrawal_password' is the column in your users table
-        } catch (error) {
-            console.error('Error hashing withdrawal password:', error);
-            return res.status(500).json({ message: "Failed to process withdrawal password." });
-        }
-    }
-
-    // Call the general updateProfile method from the User model
-    User.updateProfile(userId, updateData, (err, result) => {
+    Admin.updateUserProfile(userId, updates, (err, result) => {
         if (err) {
             console.error(`Error updating user profile for user ${userId}:`, err);
-            return res.status(500).json({ message: err.message || "Failed to update user profile." });
+            return res.status(500).json({ message: "Failed to update user profile." });
         }
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "User not found or no changes made." });
