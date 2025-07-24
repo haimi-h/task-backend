@@ -88,6 +88,77 @@ const User = {
     },
 
     /**
+     * NEW METHOD: Atomically deducts a specified amount from a user's wallet balance.
+     * Ensures the balance does not go below zero.
+     * @param {number} userId - The ID of the user.
+     * @param {number} amount - The amount to deduct.
+     * @param {function} callback - Callback function (err, result)
+     */
+    deductBalance: (userId, amount, callback) => {
+        // Use a transaction to ensure atomicity
+        db.getConnection((err, connection) => {
+            if (err) return callback(err);
+
+            connection.beginTransaction(err => {
+                if (err) {
+                    connection.release();
+                    return callback(err);
+                }
+
+                // Check current balance first
+                connection.query('SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE', [userId], (err, results) => {
+                    if (err) {
+                        return connection.rollback(() => {
+                            connection.release();
+                            callback(err);
+                        });
+                    }
+
+                    if (results.length === 0) {
+                        return connection.rollback(() => {
+                            connection.release();
+                            callback(new Error('User not found.'));
+                        });
+                    }
+
+                    const currentBalance = parseFloat(results[0].wallet_balance);
+                    if (currentBalance < amount) {
+                        return connection.rollback(() => {
+                            connection.release();
+                            callback(new Error('Insufficient balance.'));
+                        });
+                    }
+
+                    // Deduct the balance
+                    connection.query(
+                        'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
+                        [amount, userId],
+                        (err, updateResult) => {
+                            if (err) {
+                                return connection.rollback(() => {
+                                    connection.release();
+                                    callback(err);
+                                });
+                            }
+
+                            connection.commit(err => {
+                                if (err) {
+                                    return connection.rollback(() => {
+                                        connection.release();
+                                        callback(err);
+                                    });
+                                }
+                                connection.release();
+                                callback(null, updateResult);
+                            });
+                        }
+                    );
+                });
+            });
+        });
+    },
+
+    /**
      * NEW METHOD: Updates a user's profile with provided data.
      * This is a general-purpose update function.
      * @param {number} userId - The ID of the user to update.
