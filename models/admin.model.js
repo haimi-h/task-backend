@@ -25,134 +25,170 @@ const Admin = {
                 u.completed_orders,
                 u.uncompleted_orders,
                 u.wallet_balance,   -- Keep this if it's the numerical app balance
-                u.walletAddress,    -- This is likely the "recharging" address, keep for completeness
-                u.withdrawal_wallet_address, -- ADDED: To fetch the withdrawal wallet address
+                u.walletAddress,    -- ADDED: to fetch the new wallet address column
                 u.role,
                 u.created_at,
-                u.default_task_profit -- Default profit for a task
-            FROM users u
-            LEFT JOIN users r ON u.referrer_id = r.id
+                u.default_task_profit -- ADDED: Default profit for a task
+            FROM
+                users u
+            LEFT JOIN
+                users r ON u.referrer_id = r.id
+            WHERE 1=1
         `;
+        let countSql = `
+            SELECT COUNT(*) AS totalCount
+            FROM users u
+            WHERE 1=1
+        `;
+        const params = [];
+        const countParams = [];
 
-        const queryParams = [];
-        const conditions = [];
-
-        // Build WHERE clause based on filters
         if (filters.username) {
-            conditions.push(`u.username LIKE ?`);
-            queryParams.push(`%${filters.username}%`);
+            sql += ` AND u.username LIKE ?`;
+            countSql += ` AND u.username LIKE ?`;
+            params.push(`%${filters.username}%`);
+            countParams.push(`%${filters.username}%`);
         }
         if (filters.phone) {
-            conditions.push(`u.phone LIKE ?`);
-            queryParams.push(`%${filters.phone}%`);
+            sql += ` AND u.phone LIKE ?`;
+            countSql += ` AND u.phone LIKE ?`;
+            params.push(`%${filters.phone}%`);
+            countParams.push(`%${filters.phone}%`);
         }
-        if (filters.invitation_code) {
-            conditions.push(`u.invitation_code = ?`);
-            queryParams.push(filters.invitation_code);
+        if (filters.code) {
+            sql += ` AND u.invitation_code LIKE ?`;
+            countSql += ` AND u.invitation_code LIKE ?`;
+            params.push(`%${filters.code}%`);
+            countParams.push(`%${filters.code}%`);
         }
-        // MODIFIED: If filtering by 'wallet', it should filter on withdrawal_wallet_address now
-        // if your UI filter input is for 'withdrawal_wallet_address'.
-        // If it's for 'walletAddress' (recharging address), keep it as is.
-        // Assuming 'wallet' filter in UI now refers to withdrawal wallet address for admin's view
         if (filters.wallet) {
-            conditions.push(`u.withdrawal_wallet_address LIKE ?`);
-            queryParams.push(`%${filters.wallet}%`);
+            sql += ` AND u.walletAddress LIKE ?`;
+            countSql += ` AND u.walletAddress LIKE ?`;
+            params.push(`%${filters.wallet}%`);
+            countParams.push(`%${filters.wallet}%`);
         }
 
-        if (conditions.length > 0) {
-            sql += ` WHERE ` + conditions.join(' AND ');
-        }
+        sql += ` ORDER BY u.created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
 
-        // Add ORDER BY clause for consistent sorting (e.g., by creation date)
-        sql += ` ORDER BY u.created_at DESC`; // Order by newest users first
-
-        // Add LIMIT and OFFSET for pagination
-        sql += ` LIMIT ? OFFSET ?`;
-        queryParams.push(limit, offset);
-
-        // First, get the total count for pagination (before applying LIMIT/OFFSET)
-        let countSql = `SELECT COUNT(u.id) AS totalUsers FROM users u`;
-        if (conditions.length > 0) {
-            countSql += ` WHERE ` + conditions.join(' AND ');
-        }
-
-        db.query(countSql, queryParams.slice(0, queryParams.length - 2), (err, countResults) => { // Remove limit and offset for count query
+        db.query(countSql, countParams, (err, countResult) => {
             if (err) {
-                console.error('Error fetching total user count:', err);
-                return callback(err);
+                return callback(err, null, 0);
             }
-            const totalUsersCount = countResults[0].totalUsers;
+            const totalCount = countResult[0].totalCount;
 
-            // Then, get the paginated user data
-            db.query(sql, queryParams, (err, results) => {
+            db.query(sql, params, (err, results) => {
                 if (err) {
-                    console.error('Error fetching paginated user data:', err);
-                    return callback(err);
+                    return callback(err, null, 0);
                 }
-                callback(null, results, totalUsersCount);
+                callback(null, results, totalCount);
             });
         });
     },
 
+
     /**
-     * UPDATED: Updates a user's daily orders.
-     * @param {number} userId - The ID of the user.
-     * @param {number} dailyOrders - The new number of daily orders.
+     * Updates a user's daily_orders count.
+     * FIX: Also sets uncompleted_orders to daily_orders when updating to reflect new daily tasks.
+     * @param {number} userId - The ID of the user to update.
+     * @param {number} newDailyOrders - The new value for daily_orders.
      * @param {function} callback - Callback function (err, result)
      */
-    updateUserDailyOrders: (userId, dailyOrders, callback) => {
-        const sql = `UPDATE users SET daily_orders = ? WHERE id = ?`;
-        db.query(sql, [dailyOrders, userId], callback);
+    updateUserDailyOrders: (userId, newDailyOrders, callback) => {
+        // When daily_orders are updated, uncompleted_orders should be reset to this new value
+        const sql = `UPDATE users SET daily_orders = ?, uncompleted_orders = ? WHERE id = ?`;
+        db.query(sql, [newDailyOrders, newDailyOrders, userId], callback);
     },
 
     /**
-     * UPDATED: Injects (adds) balance to a user's wallet.
-     * @param {number} userId - The ID of the user.
-     * @param {number} amount - The amount to add.
+     * Updates a user's profile information.
+     * Handles username, phone, password, wallet address, role, and various order counts.
+     * ADDED: wallet_balance to be updated.
+     * ADDED: default_task_profit for non-lucky orders.
+     *
+     * @param {number} userId - The ID of the user to update.
+     * @param {object} updates - An object containing fields to update (e.g., { username: 'newname', phone: '12345' }).
      * @param {function} callback - Callback function (err, result)
      */
-    injectWallet: (userId, amount, callback) => {
-        // Ensure amount is positive and valid
-        if (typeof amount !== 'number' || amount <= 0) {
-            return callback(new Error('Invalid injection amount. Must be a positive number.'));
+    updateUserProfile: (userId, updates, callback) => {
+        const updateFields = [];
+        const params = [];
+
+        if (updates.username !== undefined) {
+            updateFields.push('username = ?');
+            params.push(updates.username);
         }
+        if (updates.phone !== undefined) {
+            updateFields.push('phone = ?');
+            params.push(updates.phone);
+        }
+        if (updates.password !== undefined) {
+            updateFields.push('password = ?');
+            params.push(updates.password);
+        }
+        if (updates.withdrawal_password !== undefined) {
+            updateFields.push('withdrawal_password = ?');
+            params.push(updates.withdrawal_password);
+        }
+        if (updates.role !== undefined) {
+            updateFields.push('role = ?');
+            params.push(updates.role);
+        }
+        if (updates.walletAddress !== undefined) {
+            updateFields.push('walletAddress = ?');
+            params.push(updates.walletAddress);
+        }
+        if (updates.daily_orders !== undefined) {
+            updateFields.push('daily_orders = ?');
+            params.push(updates.daily_orders);
+        }
+        if (updates.completed_orders !== undefined) {
+            updateFields.push('completed_orders = ?');
+            params.push(updates.completed_orders);
+        }
+        if (updates.uncompleted_orders !== undefined) {
+            updateFields.push('uncompleted_orders = ?');
+            params.push(updates.uncompleted_orders);
+        }
+        // ADDED: wallet_balance update
+        if (updates.wallet_balance !== undefined) {
+            updateFields.push('wallet_balance = ?');
+            params.push(updates.wallet_balance);
+        }
+        // ADDED: default_task_profit update
+        if (updates.defaultTaskProfit !== undefined) {
+            updateFields.push('default_task_profit = ?');
+            params.push(updates.defaultTaskProfit);
+        }
+
+
+        if (updateFields.length === 0) {
+            return callback(null, { affectedRows: 0 }); // Nothing to update
+        }
+
+        const sql = `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`;
+        params.push(userId);
+
+        db.query(sql, params, callback);
+    },
+
+    /**
+     * Injects (adds) funds to a user's wallet balance.
+     * @param {number} userId - The ID of the user to update.
+     * @param {number} amount - The amount to add to the wallet balance.
+     * @param {function} callback - Callback function (err, result)
+     */
+    injectWalletBalance: (userId, amount, callback) => {
         const sql = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`;
         db.query(sql, [amount, userId], callback);
     },
 
     /**
-     * ADDED: Updates a user's profile with provided data.
-     * This is a general-purpose update function, including walletAddress, withdrawal_password, etc.
+     * Assigns a newly generated TRC20 wallet address and its private key to a user.
+     * Only updates if walletAddress is not already set or is empty.
+     *
      * @param {number} userId - The ID of the user to update.
-     * @param {object} userData - An object containing the fields to update (e.g., { username: 'newname', default_task_profit: 35.00 }).
-     * @param {function} callback - Callback function (err, result)
-     */
-    updateUserProfile: (userId, userData, callback) => {
-        const fields = [];
-        const values = [];
-
-        for (const key in userData) {
-            if (userData.hasOwnProperty(key)) {
-                fields.push(`${key} = ?`);
-                values.push(userData[key]);
-            }
-        }
-
-        if (fields.length === 0) {
-            return callback(new Error('No fields provided for update.'), null);
-        }
-
-        const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
-        values.push(userId);
-
-        db.query(sql, values, callback);
-    },
-
-    /**
-     * ADDED: Assigns a new wallet address and its private key to a user.
-     * This is specifically for the system-generated 'recharging' wallet address.
-     * @param {number} userId - The ID of the user.
-     * @param {string} walletAddress - The generated public wallet address.
+     * @param {string} walletAddress - The TRC20 wallet address.
      * @param {string} privateKey - The private key associated with the wallet address.
      * @param {function} callback - Callback function (err, result)
      */
