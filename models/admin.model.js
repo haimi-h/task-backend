@@ -25,7 +25,8 @@ const Admin = {
                 u.completed_orders,
                 u.uncompleted_orders,
                 u.wallet_balance,   -- Keep this if it's the numerical app balance
-                u.walletAddress,    -- ADDED: to fetch the new wallet address column
+                u.walletAddress,    -- ADDED: to fetch the new wallet address column (recharge wallet)
+                u.withdrawal_wallet_address, -- ADDED: to fetch the withdrawal wallet address
                 u.role,
                 u.created_at,
                 u.default_task_profit -- ADDED: Default profit for a task
@@ -61,12 +62,20 @@ const Admin = {
             params.push(`%${filters.code}%`);
             countParams.push(`%${filters.code}%`);
         }
-        if (filters.wallet) {
+        if (filters.wallet) { // This filter will likely search on 'walletAddress' (recharge wallet)
             sql += ` AND u.walletAddress LIKE ?`;
             countSql += ` AND u.walletAddress LIKE ?`;
             params.push(`%${filters.wallet}%`);
             countParams.push(`%${filters.wallet}%`);
         }
+        // You could add a filter for withdrawal_wallet_address here if needed in the future
+        // if (filters.withdrawalWallet) {
+        //     sql += ` AND u.withdrawal_wallet_address LIKE ?`;
+        //     countSql += ` AND u.withdrawal_wallet_address LIKE ?`;
+        //     params.push(`%${filters.withdrawalWallet}%`);
+        //     countParams.push(`%${filters.withdrawalWallet}%`);
+        // }
+
 
         sql += ` ORDER BY u.created_at DESC LIMIT ? OFFSET ?`;
         params.push(limit, offset);
@@ -86,7 +95,6 @@ const Admin = {
         });
     },
 
-
     /**
      * Updates a user's daily_orders count.
      * FIX: Also sets uncompleted_orders to daily_orders when updating to reflect new daily tasks.
@@ -105,6 +113,7 @@ const Admin = {
      * Handles username, phone, password, wallet address, role, and various order counts.
      * ADDED: wallet_balance to be updated.
      * ADDED: default_task_profit for non-lucky orders.
+     * ADDED: withdrawal_wallet_address update capability (keeping this for future use if admin needs to manage it)
      *
      * @param {number} userId - The ID of the user to update.
      * @param {object} updates - An object containing fields to update (e.g., { username: 'newname', phone: '12345' }).
@@ -137,6 +146,11 @@ const Admin = {
         if (updates.walletAddress !== undefined) {
             updateFields.push('walletAddress = ?');
             params.push(updates.walletAddress);
+        }
+        // ADDED: withdrawal_wallet_address update capability (this will not interfere with tasking)
+        if (updates.withdrawal_wallet_address !== undefined) {
+            updateFields.push('withdrawal_wallet_address = ?');
+            params.push(updates.withdrawal_wallet_address);
         }
         if (updates.daily_orders !== undefined) {
             updateFields.push('daily_orders = ?');
