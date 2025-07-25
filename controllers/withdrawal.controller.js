@@ -2,12 +2,10 @@ const User = require('../models/user.model');
 const Withdrawal = require('../models/withdrawal.model');
 const validator = require('validator');
 const bcrypt = require('bcryptjs');
-const db = require('../models/db');
+const db = require('../models/db'); // Ensure this is the correct path to your db.js
 
-exports.initiateWithdrawal = async (req, res) => {
+exports.initiateWithdrawal = (req, res) => { // Removed async
     const userId = req.user.id;
-    // MODIFIED: 'to_address' is no longer expected in req.body.
-    // We will retrieve it from the user's stored profile.
     const { amount, withdrawal_password, currency = 'USDT', network = 'TRC20' } = req.body;
 
     // 1. Input Validation
@@ -21,106 +19,143 @@ exports.initiateWithdrawal = async (req, res) => {
 
     const withdrawalAmount = parseFloat(amount);
 
-    db.getConnection(async (err, connection) => {
+    // Start transaction using db.beginTransaction
+    db.beginTransaction(err => {
         if (err) {
-            console.error("Error getting database connection:", err);
-            return res.status(500).json({ message: 'Database connection error.' });
+            console.error("Error starting transaction:", err);
+            return res.status(500).json({ message: 'Database transaction error.' });
         }
 
-        try {
-            await connection.beginTransaction();
+        // MODIFIED: Fetch user data using db.query (callback-based)
+        db.query('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address FROM users WHERE id = ? FOR UPDATE', [userId], (err, userRows) => {
+            if (err) {
+                return db.rollback(() => {
+                    console.error('Error fetching user for withdrawal:', err);
+                    res.status(500).json({ message: 'Failed to fetch user data.' });
+                });
+            }
 
-            // MODIFIED: Fetch withdrawal_wallet_address along with balance and password
-            const [userRows] = await connection.execute('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address FROM users WHERE id = ? FOR UPDATE', [userId]);
+            if (userRows.length === 0) {
+                return db.rollback(() => {
+                    res.status(404).json({ message: 'User not found.' });
+                });
+            }
+
             const user = userRows[0];
 
-            if (!user) {
-                await connection.rollback();
-                connection.release();
-                return res.status(404).json({ message: 'User not found.' });
-            }
-
-            // NEW: Check if a withdrawal address is set
+            // Ensure a withdrawal wallet address is set
             if (!user.withdrawal_wallet_address) {
-                await connection.rollback();
-                connection.release();
-                return res.status(400).json({ message: 'No withdrawal wallet address set. Please set it first.' });
+                return db.rollback(() => {
+                    res.status(400).json({ message: 'Withdrawal wallet address not set. Please set it in your profile.' });
+                });
             }
 
-            // Validate the *stored* withdrawal address here (redundant but safe)
+            // Basic validation for the withdrawal address (TRC20 USDT)
             if (network === 'TRC20' && (!validator.isAlphanumeric(user.withdrawal_wallet_address) || !user.withdrawal_wallet_address.startsWith('T') || user.withdrawal_wallet_address.length !== 34)) {
-                await connection.rollback();
-                connection.release();
-                return res.status(400).json({ message: 'Invalid stored TRC20 wallet address format. Please update it.' });
+                return db.rollback(() => {
+                    res.status(400).json({ message: 'Invalid TRC20 withdrawal wallet address format configured for your account.' });
+                });
             }
 
             // Verify withdrawal password
-            const isPasswordMatch = await bcrypt.compare(withdrawal_password, user.withdrawal_password);
-            if (!isPasswordMatch) {
-                await connection.rollback();
-                connection.release();
-                return res.status(401).json({ message: 'Incorrect withdrawal password.' });
-            }
+            bcrypt.compare(withdrawal_password, user.withdrawal_password, (err, isPasswordMatch) => {
+                if (err) {
+                    return db.rollback(() => {
+                        console.error('Error comparing password:', err);
+                        res.status(500).json({ message: 'Password verification failed.' });
+                    });
+                }
+                if (!isPasswordMatch) {
+                    return db.rollback(() => {
+                        res.status(401).json({ message: 'Incorrect withdrawal password.' });
+                    });
+                }
 
-            // Check if sufficient balance
-            if (parseFloat(user.wallet_balance) < withdrawalAmount) {
-                await connection.rollback();
-                connection.release();
-                return res.status(400).json({ message: 'Insufficient balance.' });
-            }
+                // Check sufficient balance
+                if (parseFloat(user.wallet_balance) < withdrawalAmount) {
+                    return db.rollback(() => {
+                        res.status(400).json({ message: 'Insufficient balance for withdrawal.' });
+                    });
+                }
 
-            // Deduct balance from user
-            const [updateResult] = await connection.execute(
-                'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
-                [withdrawalAmount, userId]
-            );
+                // Deduct amount from user's balance
+                db.query(
+                    'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
+                    [withdrawalAmount, userId],
+                    (err, updateResult) => {
+                        if (err) {
+                            return db.rollback(() => {
+                                console.error('Error deducting balance:', err);
+                                res.status(500).json({ message: 'Failed to update user balance during withdrawal.' });
+                            });
+                        }
 
-            if (updateResult.affectedRows === 0) {
-                await connection.rollback();
-                connection.release();
-                return res.status(500).json({ message: 'Failed to update user balance.' });
-            }
+                        if (updateResult.affectedRows === 0) {
+                            return db.rollback(() => {
+                                res.status(500).json({ message: 'Failed to update user balance during withdrawal (no rows affected).' });
+                            });
+                        }
 
-            // Record the withdrawal request using the STORED address
-            const [withdrawalResult] = await connection.execute(
-                'INSERT INTO withdrawals (user_id, amount, currency, network, to_address, status) VALUES (?, ?, ?, ?, ?, ?)',
-                [userId, withdrawalAmount, currency, network, user.withdrawal_wallet_address, 'pending']
-            );
+                        // Record the withdrawal request
+                        db.query(
+                            'INSERT INTO withdrawals (user_id, amount, currency, network, to_address, status) VALUES (?, ?, ?, ?, ?, ?)',
+                            [userId, withdrawalAmount, currency, network, user.withdrawal_wallet_address, 'pending'],
+                            (err, withdrawalResult) => {
+                                if (err) {
+                                    return db.rollback(() => {
+                                        console.error('Error recording withdrawal:', err);
+                                        res.status(500).json({ message: 'Failed to record withdrawal request.' });
+                                    });
+                                }
 
-            const withdrawalId = withdrawalResult.insertId;
+                                const withdrawalId = withdrawalResult.insertId;
 
-            // !!! SIMULATED BLOCKCHAIN TRANSFER !!!
-            // (Same as before, replace with actual integration)
-            await connection.execute(
-                'UPDATE withdrawals SET status = ? WHERE id = ?',
-                ['completed', withdrawalId]
-            );
+                                // !!! SIMULATED BLOCKCHAIN TRANSFER !!!
+                                // This would be replaced by actual blockchain integration.
+                                db.query(
+                                    'UPDATE withdrawals SET status = ? WHERE id = ?',
+                                    ['completed', withdrawalId],
+                                    (err, finalUpdateResult) => {
+                                        if (err) {
+                                            return db.rollback(() => {
+                                                console.error('Error updating withdrawal status:', err);
+                                                res.status(500).json({ message: 'Failed to finalize withdrawal status.' });
+                                            });
+                                        }
 
-            await connection.commit();
-            connection.release();
+                                        db.commit(err => {
+                                            if (err) {
+                                                return db.rollback(() => {
+                                                    console.error('Error committing transaction:', err);
+                                                    res.status(500).json({ message: 'Withdrawal transaction failed to commit.' });
+                                                });
+                                            }
 
-            res.status(200).json({
-                message: 'Withdrawal request initiated successfully. Funds will be sent shortly.',
-                withdrawalId: withdrawalId,
-                amount: withdrawalAmount,
-                to_address: user.withdrawal_wallet_address, // Return the address that was used
-                currency: currency,
-                network: network,
-                status: 'completed'
+                                            res.status(200).json({
+                                                message: 'Withdrawal request initiated successfully. Funds will be sent shortly.',
+                                                withdrawalId: withdrawalId,
+                                                amount: withdrawalAmount,
+                                                to_address: user.withdrawal_wallet_address,
+                                                currency: currency,
+                                                network: network,
+                                                status: 'completed'
+                                            });
+                                        });
+                                    }
+                                );
+                            }
+                        );
+                    }
+                );
             });
-
-        } catch (error) {
-            await connection.rollback();
-            connection.release();
-            console.error('Withdrawal failed:', error);
-            res.status(500).json({ message: 'Withdrawal failed.', error: error.message });
-        }
+        });
     });
 };
 
 exports.getWithdrawalHistory = (req, res) => {
     const userId = req.user.id;
 
+    // Assuming Withdrawal.findByUserId also uses callback-based db.query
     Withdrawal.findByUserId(userId, (err, withdrawals) => {
         if (err) {
             console.error('Error fetching withdrawal history:', err);
