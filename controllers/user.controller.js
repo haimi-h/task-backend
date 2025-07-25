@@ -123,17 +123,14 @@ exports.updateUserProfile = async (req, res) => {
  */
 exports.setWithdrawalWalletAddress = async (req, res) => {
     const userId = req.user.id; // From authenticateToken middleware
-    const { withdrawal_wallet_address, withdrawal_password, currency, network } = req.body;
+    
+    // This line is the key. It must match what the frontend sends.
+    const { withdrawal_wallet_address, withdrawal_password } = req.body;
 
-    // Basic validation: ensure essential fields are not empty
+    // This check now correctly validates the right fields.
     if (!withdrawal_wallet_address || !withdrawal_password) {
         return res.status(400).json({ message: 'Wallet address and withdrawal password are required.' });
     }
-
-    // --- REMOVED WALLET ADDRESS FORMAT VALIDATION ---
-    // As per client request, the system will now save any address string
-    // as long as the withdrawal password is correct.
-    // The previous validation block for TRC20 addresses has been removed.
 
     try {
         // Fetch user to verify withdrawal password
@@ -144,6 +141,7 @@ exports.setWithdrawalWalletAddress = async (req, res) => {
                 resolve(result);
             });
         });
+
 
         // Verify withdrawal password
         const isPasswordMatch = await bcrypt.compare(withdrawal_password, user.withdrawal_password);
