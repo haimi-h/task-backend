@@ -117,6 +117,38 @@ exports.updateUserProfile = async (req, res) => {
     }
 };
 
+exports.getLoggedInUser = (req, res) => {
+    const userId = req.user.id;
+
+    User.findById(userId, (err, user) => {
+        if (err) {
+            console.error('Error fetching logged-in user for /me endpoint:', err);
+            return res.status(500).json({ message: 'Failed to fetch user data.' });
+        }
+        if (!user) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+        // The frontend might expect the full user object or a simplified one.
+        // This sends the full object, which is generally fine.
+        res.json(user); 
+    });
+};
+
+exports.getMyReferrals = (req, res) => {
+    const userId = req.user.id;
+
+    db.query(
+        "SELECT id, username, phone, created_at FROM users WHERE referrer_id = ?",
+        [userId],
+        (err, results) => {
+            if (err) {
+                console.error("Error fetching referrals from DB:", err);
+                return res.status(500).json({ message: "Failed to fetch referrals." });
+            }
+            res.status(200).json({ referrals: results });
+        }
+    );
+};
 /**
  * Handles the setting or updating of a user's withdrawal wallet address.
  * This function also verifies the user's withdrawal password.
