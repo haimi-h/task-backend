@@ -1,5 +1,5 @@
 // controllers/rechargeRequest.controller.js
-const db = require('../config/db');
+const db = require('../models/db');
 const { getIo } = require('../utils/socket');
 
 // Submit a new recharge request
