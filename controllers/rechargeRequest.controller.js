@@ -151,3 +151,20 @@ exports.rejectRechargeRequest = (req, res) => {
         });
     });
 };
+
+/**
+ * NEW: Fetches a user's rejected recharge requests.
+ * This will be used on the user's tasking page or a dedicated history page.
+ * Protected by authenticateToken middleware.
+ */
+exports.getUserRejectedRecharges = (req, res) => {
+    const userId = req.user.id; // Get user ID from authenticated token
+
+    RechargeRequest.getRequestsByUserId(userId, 'rejected', (err, requests) => {
+        if (err) {
+            console.error('Error fetching user rejected recharge requests:', err);
+            return res.status(500).json({ message: "Failed to fetch rejected recharge requests.", error: err.message });
+        }
+        res.status(200).json(requests);
+    });
+};
