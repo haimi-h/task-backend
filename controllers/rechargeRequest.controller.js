@@ -1,7 +1,7 @@
 // your-project/controllers/rechargeRequest.controller.js
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model'); // To update user wallet balance
-const { io } = require('../server'); // FIX: Correctly import io instance from server.js
+const { io } = require('../server'); // Import io for real-time updates
 
 // IMPORTANT: For image upload, you'll need a file storage solution (e.g., Multer + Cloudinary/AWS S3).
 // For now, we'll assume `receipt_image_url` is provided directly or handled by a middleware.
@@ -35,27 +35,16 @@ exports.submitRechargeRequest = (req, res) => {
         }
         
         // Notify admins in real-time about a new pending request
-        if (io) {
-            io.to('admins').emit('newRechargeRequest', {
-                id: result.insertId,
-                user_id: userId,
-                amount: parseFloat(amount),
-                currency,
-                receipt_image_url: null, // No image URL at this stage
-                whatsapp_number: null,   // No WhatsApp number at this stage
-                status: 'pending',
-                created_at: new Date().toISOString()
-            });
-            // Also notify the specific user that their request is pending and they should go to chat
-            io.to(`user-${userId}`).emit('rechargeRequestSubmitted', {
-                requestId: result.insertId,
-                amount: parseFloat(amount),
-                currency,
-                message: "Your recharge request has been submitted. Please proceed to chat for further instructions."
-            });
-        } else {
-            console.warn("Socket.IO 'io' instance not available. Cannot emit 'newRechargeRequest' event.");
-        }
+        io.to('admins').emit('newRechargeRequest', {
+            id: result.insertId,
+            user_id: userId,
+            amount: parseFloat(amount),
+            currency,
+            receipt_image_url,
+            whatsapp_number,
+            status: 'pending',
+            created_at: new Date().toISOString()
+        });
 
         // Respond with success and indicate that redirection to chat is expected
         res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for further instructions." });
@@ -115,15 +104,11 @@ exports.approveRechargeRequest = (req, res) => {
                 }
 
                 // Notify user (via Socket.IO) that their recharge has been approved
-                if (io) {
-                    io.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                        requestId: request.id,
-                        amount: request.amount,
-                        currency: request.currency
-                    });
-                } else {
-                    console.warn("Socket.IO 'io' instance not available. Cannot emit 'rechargeApproved' event.");
-                }
+                io.to(`user-${request.user_id}`).emit('rechargeApproved', {
+                    requestId: request.id,
+                    amount: request.amount,
+                    currency: request.currency
+                });
 
                 res.status(200).json({ message: "Recharge request approved and user wallet credited." });
             });
@@ -160,16 +145,12 @@ exports.rejectRechargeRequest = (req, res) => {
             }
 
             // Notify user (via Socket.IO) that their recharge has been rejected
-            if (io) {
-                io.to(`user-${request.user_id}`).emit('rechargeRejected', {
-                    requestId: request.id,
-                    amount: request.amount,
-                    currency: request.currency,
-                    admin_notes: admin_notes
-                });
-            } else {
-                console.warn("Socket.IO 'io' instance not available. Cannot emit 'rechargeRejected' event.");
-            }
+            io.to(`user-${request.user_id}`).emit('rechargeRejected', {
+                requestId: request.id,
+                amount: request.amount,
+                currency: request.currency,
+                admin_notes: admin_notes
+            });
 
             res.status(200).json({ message: "Recharge request rejected." });
         });

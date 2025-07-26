@@ -12,7 +12,9 @@ const userRoutes = require('./routes/user.routes');
 const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
 const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
+const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
 const chatRoutes = require('./routes/chat.routes');
+const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
 const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
 
 const { checkTRXPayments } = require('./paymentMonitor');
@@ -25,6 +27,7 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// --- FIX: Ensure all frontend origins are listed here ---
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
         'https://shopify-clone-orpin.vercel.app',
@@ -37,6 +40,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
@@ -45,9 +49,10 @@ app.use(cors({
   credentials: true
 }));
 
+// --- FIX: Ensure Socket.IO CORS configuration also uses the full allowedOrigins list ---
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: allowedOrigins, // Use the same allowedOrigins for Socket.IO
     methods: ["GET", "POST"]
   }
 });
@@ -78,6 +83,8 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
+app.use('/api/payment', paymentRoutes); // Existing payment routes
+app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
 app.use('/api/payment', paymentRoutes); // Existing payment routes
 app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
 app.use('/api/chat', chatRoutes);
