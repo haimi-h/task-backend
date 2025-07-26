@@ -25,10 +25,12 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// --- FIX: Ensure all frontend origins are listed here ---
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
-        'https://shopify-clone-orpin.vercel.app',
-        'https://admin-backend-lake.vercel.app'
+        'https://shopify-clone-orpin.vercel.app', // Your user frontend
+        'https://admin-backend-lake.vercel.app', // Your admin frontend
+        'https://shopify-task.onrender.com' // If your backend is also a frontend or needs to access itself
       ]
     : ["http://localhost:3000", "http://localhost:3001"];
 
@@ -41,13 +43,14 @@ app.use(cors({
     }
     return callback(null, true);
   },
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Added OPTIONS for preflight requests
   credentials: true
 }));
 
+// --- FIX: Ensure Socket.IO CORS configuration also uses the full allowedOrigins list ---
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: allowedOrigins, // Use the same allowedOrigins for Socket.IO
     methods: ["GET", "POST"]
   }
 });
