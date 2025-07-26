@@ -3,19 +3,18 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
-const fs = require('fs'); // <--- Add this line to import the 'fs' module
-const path = require('path'); // <--- Add this line to import the 'path' module
+const fs = require('fs');
+const path = require('path');
 
 const authRoutes = require('./routes/auth.routes');
 const taskRoutes = require('./routes/task.routes');
 const userRoutes = require('./routes/user.routes');
 const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
-const paymentRoutes = require('./routes/payment.routes');
+const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
 const chatRoutes = require('./routes/chat.routes');
-const rechargeRoutes = require('./routes/recharge.routes');
+const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
 
-// const { checkTRXPayment, checkUSDTTRC20Payment } = require('./paymentMonitor');
 const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
 const Admin = require('./models/admin.model');
@@ -57,7 +56,7 @@ app.use(express.json());
 
 // --- New route to serve products from products.json ---
 app.get('/api/products', (req, res) => {
-  const productsFilePath = path.join(__dirname, 'products.json'); // Adjust path if products.json is in a subdirectory, e.g., 'data', then use: path.join(__dirname, 'data', 'products.json')
+  const productsFilePath = path.join(__dirname, 'products.json');
   fs.readFile(productsFilePath, 'utf8', (err, data) => {
     if (err) {
       console.error('Error reading products.json:', err);
@@ -79,9 +78,10 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
-app.use('/api/payment', paymentRoutes);
+app.use('/api/payment', paymentRoutes); // Existing payment routes
+app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
 app.use('/api/chat', chatRoutes);
-app.use('/api/recharge', rechargeRoutes);
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
@@ -151,27 +151,6 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-// setInterval(async () => {
-//   console.log('💲 Checking for payments...');
-//   try {
-//     const usersToMonitor = await new Promise((resolve, reject) => {
-//         Admin.getAllUsersForAdmin((err, users) => {
-//             if (err) return reject(err);
-//             resolve(users.filter(user => user.walletAddress && user.walletAddress !== ''));
-//         });
-//     });
-
-//     for (const user of usersToMonitor) {
-//       if (user.walletAddress) {
-//         console.log(`Checking ${user.username}'s wallet: ${user.walletAddress}`);
-//         // await checkTRXPayment(user.walletAddress, user.id);
-//         // await checkUSDTTRC20Payment(user.walletAddress, user.id);
-//       }
-//     }
-//   } catch (error) {
-//     console.error('❌ Error in payment monitoring loop:', error);
-//   }
-// }, 30000);
 setInterval(async () => {
   console.log('💲 Checking for payments...');
   await checkTRXPayments();
