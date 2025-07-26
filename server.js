@@ -164,3 +164,5 @@ setInterval(async () => {
   // When you're ready for USDT, you'll add it here:
   // await checkUSDTTRC20Payments();
 }, 15000);
+
+module.exports = { app, io, server };
