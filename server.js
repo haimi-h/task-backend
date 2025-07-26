@@ -13,6 +13,7 @@ const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const chatRoutes = require('./routes/chat.routes');
+const rechargeRoutes = require('./routes/recharge.routes');
 
 // const { checkTRXPayment, checkUSDTTRC20Payment } = require('./paymentMonitor');
 const { checkTRXPayments } = require('./paymentMonitor');
@@ -80,7 +81,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/chat', chatRoutes);
-
+app.use('/api/recharge', rechargeRoutes);
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 

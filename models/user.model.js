@@ -1,3 +1,4 @@
+// your-project/models/user.model.js
 const db = require('./db'); // Ensure this path is correct
 
 const User = {
@@ -27,13 +28,15 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // MODIFIED: Ensure withdrawal_password AND withdrawal_wallet_address are explicitly selected
         const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
+                console.error(`[User Model - findById] Database error for User ${id}:`, err);
                 return callback(err);
             }
-            callback(null, results[0]);
+            const user = results[0] || null;
+            console.log(`[User Model - findById] Fetched user data for ID ${id}:`, user);
+            callback(null, user);
         });
     },
 
@@ -71,6 +74,26 @@ const User = {
         `;
 
         db.query(sql, [amount, completedCount, uncompletedCount, uncompletedCount, userId], callback);
+    },
+
+    /**
+     * NEW METHOD: A simpler function to update only the wallet balance.
+     * Used for recharge approvals and other direct balance adjustments.
+     * @param {number} userId - The ID of the user whose wallet to update.
+     * @param {number} amount - The amount to add or deduct.
+     * @param {string} type - 'add' or 'deduct'.
+     * @param {function} callback - Callback function (err, result)
+     */
+    updateWalletBalance: (userId, amount, type, callback) => {
+        let sql;
+        if (type === 'add') {
+            sql = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`;
+        } else if (type === 'deduct') {
+            sql = `UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?`;
+        } else {
+            return callback(new Error('Invalid update type for wallet balance. Must be "add" or "deduct".'));
+        }
+        db.query(sql, [amount, userId], callback);
     },
 
     deductBalance: (userId, amount, callback) => {
@@ -155,12 +178,6 @@ const User = {
         db.query(sql, values, callback);
     },
 
-    /**
-     * NEW METHOD: Updates the user's permanent withdrawal wallet address.
-     * @param {number} userId - The ID of the user.
-     * @param {string} newAddress - The new withdrawal wallet address to save.
-     * @param {function} callback - Callback function (err, result)
-     */
     updateWithdrawalWalletAddress: (userId, newAddress, callback) => {
         const sql = `UPDATE users SET withdrawal_wallet_address = ? WHERE id = ?`;
         db.query(sql, [newAddress, userId], callback);
