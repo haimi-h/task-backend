@@ -1,180 +1,87 @@
-// your-project/controllers/rechargeRequest.controller.js
-const RechargeRequest = require('../models/rechargeRequest.model');
-const User = require('../models/user.model'); // To update user wallet balance
-// const { io } = require('../server'); // Import io for real-time updates
-// const { io } = require('../server');
-let ioInstance;
+// controllers/rechargeRequest.controller.js
+const db = require('../config/db');
+const { getIo } = require('../utils/socket');
 
-
-exports.setIo = (io) => {
-    ioInstance = io;
-};
-
-// IMPORTANT: For image upload, you'll need a file storage solution (e.g., Multer + Cloudinary/AWS S3).
-// For WhatsApp, you'll need a WhatsApp API (e.g., Twilio, MessageBird, or a custom solution).
-// This controller will focus on the database logic and API endpoints.
-
-/**
- * User submits a new recharge request.
- * This endpoint will be called from the user's RechargePage.
- * Expects: { amount, currency } in req.body
- * It will now create a pending request and indicate success,
- * with the expectation that the frontend redirects to chat.
- */
+// Submit a new recharge request
 exports.submitRechargeRequest = (req, res) => {
-    const userId = req.user.id;
-    const { amount, currency } = req.body;
+  const { amount } = req.body;
+  const userId = req.user.id;
 
-    if (!userId || !amount || !currency) {
-        return res.status(400).json({ message: "All fields (amount, currency) are required." });
+  const query = 'INSERT INTO recharge_requests (user_id, amount, status) VALUES (?, ?, ?)';
+  const values = [userId, amount, 'pending'];
+
+  db.query(query, values, (err, result) => {
+    if (err) {
+      console.error('Error submitting recharge request:', err);
+      return res.status(500).json({ error: 'Database error' });
     }
-    if (isNaN(amount) || parseFloat(amount) <= 0) {
-        return res.status(400).json({ message: "Amount must be a positive number." });
+
+    const rechargeRequestId = result.insertId;
+    const io = getIo(); // ✅ Socket reference
+
+    if (io) {
+      io.to('admins').emit('newRechargeRequest', {
+        id: rechargeRequestId,
+        userId,
+        amount,
+        status: 'pending',
+        createdAt: new Date(),
+      });
+    } else {
+      console.error('⚠️ Socket.IO instance not found while emitting.');
     }
 
-    const receipt_image_url = null;
-    const whatsapp_number = null;
-
-    RechargeRequest.create(userId, parseFloat(amount), currency, receipt_image_url, whatsapp_number, (err, result) => {
-        if (err) {
-            console.error('Error creating recharge request:', err);
-            return res.status(500).json({ message: "Failed to submit recharge request." });
-        }
-
-        // Notify admins about the new recharge request
-        // --- MODIFIED: Use ioInstance instead of io ---
-        if (ioInstance) { // Add a check to ensure ioInstance is available
-            ioInstance.to('admins').emit('newRechargeRequest', {
-                id: result.insertId,
-                user_id: userId,
-                // username: user.username, // Assuming user object is available from auth middleware
-                // phone: user.phone,
-                amount: parseFloat(amount),
-                currency: currency,
-                receipt_image_url: receipt_image_url,
-                whatsapp_number: whatsapp_number,
-                status: 'pending',
-                created_at: new Date().toISOString()
-            });
-        } else {
-            console.warn('Socket.IO instance not available in rechargeRequestController. Admin notification skipped.');
-        }
-
-        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for verification." });
-    });
+    res.status(200).json({ message: 'Recharge request submitted successfully.' });
+  });
 };
 
+// Get all pending recharge requests (admin)
+exports.getPendingRechargeRequests = (req, res) => {
+  const query = 'SELECT * FROM recharge_requests WHERE status = ?';
+  db.query(query, ['pending'], (err, results) => {
+    if (err) {
+      console.error('Error fetching pending recharges:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.status(200).json(results);
+  });
+};
 
-/**
- * Admin approves a recharge request.
- * This will credit the user's wallet and mark the request as 'approved'.
- * Protected by checkAdminRole middleware.
- * Expects: { admin_notes } in req.body
- */
+// Approve a recharge request (admin)
 exports.approveRechargeRequest = (req, res) => {
-    const { requestId } = req.params;
-    const { admin_notes } = req.body;
-
-    RechargeRequest.findById(requestId, (err, request) => {
-        if (err) {
-            console.error(`Error finding recharge request ${requestId}:`, err);
-            return res.status(500).json({ message: "Failed to process request." });
-        }
-        if (!request) {
-            return res.status(404).json({ message: "Recharge request not found." });
-        }
-        if (request.status !== 'pending') {
-            return res.status(400).json({ message: `Recharge request is already ${request.status}.` });
-        }
-
-        RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
-            if (updateErr) {
-                console.error(`Error updating recharge request status to approved for ${requestId}:`, updateErr);
-                return res.status(500).json({ message: "Failed to approve recharge request status." });
-            }
-
-            User.updateWalletBalance(request.user_id, request.amount, 'add', (walletErr) => {
-                if (walletErr) {
-                    console.error(`Error crediting wallet for user ${request.user_id} after recharge approval:`, walletErr);
-                    return res.status(500).json({ message: "Recharge approved, but failed to credit user wallet. Manual intervention required.", error: walletErr.message });
-                }
-
-                // Notify user (via Socket.IO) that their recharge has been approved
-                // --- MODIFIED: Use ioInstance instead of io ---
-                if (ioInstance) { // Add a check
-                    ioInstance.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                        requestId: request.id,
-                        amount: request.amount,
-                        currency: request.currency
-                    });
-                } else {
-                    console.warn('Socket.IO instance not available in rechargeRequestController. User notification skipped.');
-                }
-
-                res.status(200).json({ message: "Recharge request approved and user wallet credited." });
-            });
-        });
-    });
+  const { requestId } = req.params;
+  const query = 'UPDATE recharge_requests SET status = ? WHERE id = ?';
+  db.query(query, ['approved', requestId], (err) => {
+    if (err) {
+      console.error('Error approving recharge:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.status(200).json({ message: 'Recharge request approved.' });
+  });
 };
 
-/**
- * Admin rejects a recharge request.
- * This will mark the request as 'rejected'.
- * Protected by checkAdminRole middleware.
- * Expects: { admin_notes } in req.body
- */
+// Reject a recharge request (admin)
 exports.rejectRechargeRequest = (req, res) => {
-    const { requestId } = req.params;
-    const { admin_notes } = req.body;
-
-    RechargeRequest.findById(requestId, (err, request) => {
-        if (err) {
-            console.error(`Error finding recharge request ${requestId}:`, err);
-            return res.status(500).json({ message: "Failed to process request." });
-        }
-        if (!request) {
-            return res.status(404).json({ message: "Recharge request not found." });
-        }
-        if (request.status !== 'pending') {
-            return res.status(400).json({ message: `Recharge request is already ${request.status}.` });
-        }
-
-        RechargeRequest.updateStatus(requestId, 'rejected', admin_notes, (updateErr) => {
-            if (updateErr) {
-                console.error(`Error updating recharge request status to rejected for ${requestId}:`, updateErr);
-                return res.status(500).json({ message: "Failed to reject recharge request status." });
-            }
-
-            // Notify user (via Socket.IO) that their recharge has been rejected
-            // --- MODIFIED: Use ioInstance instead of io ---
-            if (ioInstance) { // Add a check
-                ioInstance.to(`user-${request.user_id}`).emit('rechargeRejected', {
-                    requestId: request.id,
-                    amount: request.amount,
-                    currency: request.currency,
-                    admin_notes: admin_notes
-                });
-            } else {
-                console.warn('Socket.IO instance not available in rechargeRequestController. User notification skipped.');
-            }
-
-            res.status(200).json({ message: "Recharge request rejected." });
-        });
-    });
+  const { requestId } = req.params;
+  const query = 'UPDATE recharge_requests SET status = ? WHERE id = ?';
+  db.query(query, ['rejected', requestId], (err) => {
+    if (err) {
+      console.error('Error rejecting recharge:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.status(200).json({ message: 'Recharge request rejected.' });
+  });
 };
-/**
- * NEW: Fetches a user's rejected recharge requests.
- * This will be used on the user's tasking page or a dedicated history page.
- * Protected by authenticateToken middleware.
- */
-exports.getUserRejectedRecharges = (req, res) => {
-    const userId = req.user.id; // Get user ID from authenticated token
 
-    RechargeRequest.getRequestsByUserId(userId, 'rejected', (err, requests) => {
-        if (err) {
-            console.error('Error fetching user rejected recharge requests:', err);
-            return res.status(500).json({ message: "Failed to fetch rejected recharge requests.", error: err.message });
-        }
-        res.status(200).json(requests);
-    });
+// Get all rejected recharge requests for a user
+exports.getUserRejectedRecharges = (req, res) => {
+  const userId = req.user.id;
+  const query = 'SELECT * FROM recharge_requests WHERE user_id = ? AND status = ?';
+  db.query(query, [userId, 'rejected'], (err, results) => {
+    if (err) {
+      console.error('Error fetching rejected recharges:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.status(200).json(results);
+  });
 };
