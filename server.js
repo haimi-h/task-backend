@@ -34,9 +34,10 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       ]
     : ["http://localhost:3000", "http://localhost:3001"];
 
-app.use(cors({
+// --- Updated CORS Configuration ---
+const corsOptions = {
     origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
+        if (!origin) return callback(null, true); // Allow requests with no origin (like mobile apps or curl requests)
         if (allowedOrigins.indexOf(origin) === -1) {
             const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}.`;
             console.warn(msg);
@@ -44,15 +45,16 @@ app.use(cors({
         }
         return callback(null, true);
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true
-}));
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Explicitly allow OPTIONS for preflight
+    credentials: true, // Allow cookies to be sent with requests
+    optionsSuccessStatus: 204 // Respond with 204 for preflight OPTIONS requests
+};
+
+app.use(cors(corsOptions)); // Apply CORS middleware to Express app
+// --- End Updated CORS Configuration ---
 
 const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins,
-        methods: ["GET", "POST"]
-    }
+    cors: corsOptions // Use the same CORS options for Socket.IO
 });
 
 // --- NEW: Socket.IO Authentication Middleware ---
@@ -77,7 +79,8 @@ io.use((socket, next) => {
 // --- NEW: Export the io instance ---
 module.exports.io = io; // Make io available to other modules
 
-app.use(express.json());
+app.use(express.json()); // This should be after cors() if you want to apply cors to json parsing errors too
+
 
 // --- New route to serve products from products.json ---
 app.get('/api/products', (req, res) => {
@@ -167,7 +170,7 @@ io.on('connection', (socket) => {
 
     socket.on('leaveRoom', (roomName) => {
         socket.leave(roomName);
-        console.log(`${socket.id} left room: ${roomName}`);
+        console.log(`${socket.id} left room: ${room.name}`);
     });
 
     socket.on('identifyAdmin', (adminId) => {
