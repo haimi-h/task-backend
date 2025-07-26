@@ -11,43 +11,54 @@ const { io } = require('../server'); // FIX: Correctly import io instance from s
 /**
  * User submits a new recharge request.
  * This endpoint will be called from the user's RechargePage.
- * Expects: { amount, currency, receipt_image_url, whatsapp_number } in req.body
+ * Expects: { amount, currency } in req.body
+ * It will now create a pending request and indicate success,
+ * with the expectation that the frontend redirects to chat.
  */
 exports.submitRechargeRequest = (req, res) => {
     const userId = req.user.id; // Get user ID from authenticated token
-    const { amount, currency, receipt_image_url, whatsapp_number } = req.body;
+    const { amount, currency } = req.body; // Removed receipt_image_url and whatsapp_number
 
-    if (!userId || !amount || !currency || !receipt_image_url || !whatsapp_number) {
-        return res.status(400).json({ message: "All fields (amount, currency, receipt_image_url, whatsapp_number) are required." });
+    if (!userId || !amount || !currency) {
+        return res.status(400).json({ message: "All fields (amount, currency) are required." });
     }
     if (isNaN(amount) || parseFloat(amount) <= 0) {
         return res.status(400).json({ message: "Amount must be a positive number." });
     }
 
-    RechargeRequest.create(userId, parseFloat(amount), currency, receipt_image_url, whatsapp_number, (err, result) => {
+    // For now, receipt_image_url and whatsapp_number will be null/empty in the DB initially
+    // They can be updated by the admin later via a separate endpoint if needed, or simply handled via chat.
+    RechargeRequest.create(userId, parseFloat(amount), currency, null, null, (err, result) => {
         if (err) {
             console.error('Error submitting recharge request:', err);
             return res.status(500).json({ message: "Failed to submit recharge request.", error: err.message });
         }
         
         // Notify admins in real-time about a new pending request
-        // Ensure io is defined before using it
         if (io) {
             io.to('admins').emit('newRechargeRequest', {
                 id: result.insertId,
                 user_id: userId,
                 amount: parseFloat(amount),
                 currency,
-                receipt_image_url,
-                whatsapp_number,
+                receipt_image_url: null, // No image URL at this stage
+                whatsapp_number: null,   // No WhatsApp number at this stage
                 status: 'pending',
                 created_at: new Date().toISOString()
+            });
+            // Also notify the specific user that their request is pending and they should go to chat
+            io.to(`user-${userId}`).emit('rechargeRequestSubmitted', {
+                requestId: result.insertId,
+                amount: parseFloat(amount),
+                currency,
+                message: "Your recharge request has been submitted. Please proceed to chat for further instructions."
             });
         } else {
             console.warn("Socket.IO 'io' instance not available. Cannot emit 'newRechargeRequest' event.");
         }
 
-        res.status(201).json({ message: "Recharge request submitted successfully. Awaiting admin approval." });
+        // Respond with success and indicate that redirection to chat is expected
+        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for further instructions." });
     });
 };
 
