@@ -1,7 +1,7 @@
 // your-project/controllers/rechargeRequest.controller.js
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model'); // To update user wallet balance
-const { io } = require('../server'); // Import io for real-time updates
+// const { io } = require('../server'); // Import io for real-time updates
 
 // IMPORTANT: For image upload, you'll need a file storage solution (e.g., Multer + Cloudinary/AWS S3).
 // For WhatsApp, you'll need a WhatsApp API (e.g., Twilio, MessageBird, or a custom solution).
@@ -16,40 +16,28 @@ const { io } = require('../server'); // Import io for real-time updates
  */
 exports.submitRechargeRequest = (req, res) => {
     const userId = req.user.id; // Get user ID from authenticated token
-    const { amount, currency } = req.body; // Removed receipt_image_url and whatsapp_number
+    const { amount, currency } = req.body; //
 
     if (!userId || !amount || !currency) {
-        return res.status(400).json({ message: "All fields (amount, currency) are required." });
+        return res.status(400).json({ message: "All fields (amount, currency) are required." }); //
     }
     if (isNaN(amount) || parseFloat(amount) <= 0) {
-        return res.status(400).json({ message: "Amount must be a positive number." });
+        return res.status(400).json({ message: "Amount must be a positive number." }); //
     }
 
-    // Initialize receipt_image_url and whatsapp_number to null or empty string
-    // Since they are no longer coming from req.body for this specific endpoint
-    const receipt_image_url = null; // Or '';
-    const whatsapp_number = null;   // Or '';
+    const receipt_image_url = null; // Set to null as it's no longer used
+    const whatsapp_number = null;   // Set to null as it's no longer used
 
     RechargeRequest.create(userId, parseFloat(amount), currency, receipt_image_url, whatsapp_number, (err, result) => {
         if (err) {
             console.error('Error submitting recharge request:', err);
-            return res.status(500).json({ message: "Failed to submit recharge request.", error: err.message });
+            return res.status(500).json({ message: "Failed to submit recharge request.", error: err.message }); //
         }
         
-        // Notify admins in real-time about a new pending request
-        io.to('admins').emit('newRechargeRequest', {
-            id: result.insertId,
-            user_id: userId,
-            amount: parseFloat(amount),
-            currency,
-            receipt_image_url, // Now correctly defined
-            whatsapp_number,   // Now correctly defined
-            status: 'pending',
-            created_at: new Date().toISOString()
-        });
+        // REMOVED: The io.to('admins').emit(...) block is gone.
 
         // Respond with success and indicate that redirection to chat is expected
-        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for further instructions." });
+        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for further instructions." }); //
     });
 };
 
