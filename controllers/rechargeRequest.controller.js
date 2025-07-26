@@ -1,7 +1,7 @@
 // your-project/controllers/rechargeRequest.controller.js
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model'); // To update user wallet balance
-const { io } = require('../server'); // Import io for real-time updates
+const { io } = require('../server'); // FIX: Correctly import io instance from server.js
 
 // IMPORTANT: For image upload, you'll need a file storage solution (e.g., Multer + Cloudinary/AWS S3).
 // For now, we'll assume `receipt_image_url` is provided directly or handled by a middleware.
@@ -31,16 +31,21 @@ exports.submitRechargeRequest = (req, res) => {
         }
         
         // Notify admins in real-time about a new pending request
-        io.to('admins').emit('newRechargeRequest', {
-            id: result.insertId,
-            user_id: userId,
-            amount: parseFloat(amount),
-            currency,
-            receipt_image_url,
-            whatsapp_number,
-            status: 'pending',
-            created_at: new Date().toISOString()
-        });
+        // Ensure io is defined before using it
+        if (io) {
+            io.to('admins').emit('newRechargeRequest', {
+                id: result.insertId,
+                user_id: userId,
+                amount: parseFloat(amount),
+                currency,
+                receipt_image_url,
+                whatsapp_number,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            });
+        } else {
+            console.warn("Socket.IO 'io' instance not available. Cannot emit 'newRechargeRequest' event.");
+        }
 
         res.status(201).json({ message: "Recharge request submitted successfully. Awaiting admin approval." });
     });
@@ -99,11 +104,15 @@ exports.approveRechargeRequest = (req, res) => {
                 }
 
                 // Notify user (via Socket.IO) that their recharge has been approved
-                io.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                    requestId: request.id,
-                    amount: request.amount,
-                    currency: request.currency
-                });
+                if (io) {
+                    io.to(`user-${request.user_id}`).emit('rechargeApproved', {
+                        requestId: request.id,
+                        amount: request.amount,
+                        currency: request.currency
+                    });
+                } else {
+                    console.warn("Socket.IO 'io' instance not available. Cannot emit 'rechargeApproved' event.");
+                }
 
                 res.status(200).json({ message: "Recharge request approved and user wallet credited." });
             });
@@ -140,12 +149,16 @@ exports.rejectRechargeRequest = (req, res) => {
             }
 
             // Notify user (via Socket.IO) that their recharge has been rejected
-            io.to(`user-${request.user_id}`).emit('rechargeRejected', {
-                requestId: request.id,
-                amount: request.amount,
-                currency: request.currency,
-                admin_notes: admin_notes
-            });
+            if (io) {
+                io.to(`user-${request.user_id}`).emit('rechargeRejected', {
+                    requestId: request.id,
+                    amount: request.amount,
+                    currency: request.currency,
+                    admin_notes: admin_notes
+                });
+            } else {
+                console.warn("Socket.IO 'io' instance not available. Cannot emit 'rechargeRejected' event.");
+            }
 
             res.status(200).json({ message: "Recharge request rejected." });
         });

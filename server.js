@@ -11,9 +11,9 @@ const taskRoutes = require('./routes/task.routes');
 const userRoutes = require('./routes/user.routes');
 const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
-const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
+const paymentRoutes = require('./routes/payment.routes');
 const chatRoutes = require('./routes/chat.routes');
-const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
+const rechargeRoutes = require('./routes/recharge.routes');
 
 const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
@@ -25,12 +25,11 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// --- FIX: Ensure all frontend origins are listed here ---
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
         'https://shopify-clone-orpin.vercel.app', // Your user frontend
         'https://admin-backend-lake.vercel.app', // Your admin frontend
-        'https://shopify-task.onrender.com' // If your backend is also a frontend or needs to access itself
+        'https://shopify-task.onrender.com' // Your backend URL (sometimes needed if backend makes requests to itself)
       ]
     : ["http://localhost:3000", "http://localhost:3001"];
 
@@ -38,22 +37,25 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}.`;
+      console.warn(msg);
       return callback(new Error(msg), false);
     }
     return callback(null, true);
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Added OPTIONS for preflight requests
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
 
-// --- FIX: Ensure Socket.IO CORS configuration also uses the full allowedOrigins list ---
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins, // Use the same allowedOrigins for Socket.IO
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
+
+// --- NEW: Export the io instance ---
+module.exports.io = io; // Make io available to other modules
 
 app.use(express.json());
 
@@ -81,8 +83,8 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
-app.use('/api/payment', paymentRoutes); // Existing payment routes
-app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
+app.use('/api/payment', paymentRoutes);
+app.use('/api/recharge', rechargeRoutes);
 app.use('/api/chat', chatRoutes);
 
 io.on('connection', (socket) => {
