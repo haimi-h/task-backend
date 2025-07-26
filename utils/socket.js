@@ -1,9 +1,15 @@
 // utils/socket.js
-let io = null;
+
+let ioInstance = null;
 
 module.exports = {
-  setIo: (ioInstance) => {
-    io = ioInstance;
+  setIo: (io) => {
+    ioInstance = io;
   },
-  getIo: () => io,
+  getIo: () => {
+    if (!ioInstance) {
+      console.warn('⚠️ getIo was called before setIo. Make sure io is initialized.');
+    }
+    return ioInstance;
+  }
 };
