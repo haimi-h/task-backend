@@ -4,7 +4,6 @@ const User = require('../models/user.model'); // To update user wallet balance
 const { io } = require('../server'); // Import io for real-time updates
 
 // IMPORTANT: For image upload, you'll need a file storage solution (e.g., Multer + Cloudinary/AWS S3).
-// For now, we'll assume `receipt_image_url` is provided directly or handled by a middleware.
 // For WhatsApp, you'll need a WhatsApp API (e.g., Twilio, MessageBird, or a custom solution).
 // This controller will focus on the database logic and API endpoints.
 
@@ -26,9 +25,12 @@ exports.submitRechargeRequest = (req, res) => {
         return res.status(400).json({ message: "Amount must be a positive number." });
     }
 
-    // For now, receipt_image_url and whatsapp_number will be null/empty in the DB initially
-    // They can be updated by the admin later via a separate endpoint if needed, or simply handled via chat.
-    RechargeRequest.create(userId, parseFloat(amount), currency, null, null, (err, result) => {
+    // Initialize receipt_image_url and whatsapp_number to null or empty string
+    // Since they are no longer coming from req.body for this specific endpoint
+    const receipt_image_url = null; // Or '';
+    const whatsapp_number = null;   // Or '';
+
+    RechargeRequest.create(userId, parseFloat(amount), currency, receipt_image_url, whatsapp_number, (err, result) => {
         if (err) {
             console.error('Error submitting recharge request:', err);
             return res.status(500).json({ message: "Failed to submit recharge request.", error: err.message });
@@ -40,8 +42,8 @@ exports.submitRechargeRequest = (req, res) => {
             user_id: userId,
             amount: parseFloat(amount),
             currency,
-            receipt_image_url,
-            whatsapp_number,
+            receipt_image_url, // Now correctly defined
+            whatsapp_number,   // Now correctly defined
             status: 'pending',
             created_at: new Date().toISOString()
         });
