@@ -12,10 +12,10 @@ const userRoutes = require('./routes/user.routes');
 const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
 const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
-const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
+// const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
 const chatRoutes = require('./routes/chat.routes');
 const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
-const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
+// const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
 
 const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
@@ -40,7 +40,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      // const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
