@@ -92,10 +92,13 @@ exports.getMessages = (req, res) => {
     const userWalletAddress = user.walletAddress;
 
     // MODIFIED: Pass requesterId (which will be admin's ID if admin is viewing)
+    // Ensure the adminId passed to ensureInitialMessages is actually an admin's ID if an admin is viewing
+    const adminIdForInitialMessages = requesterRole === 'admin' ? requesterId : null; // Pass adminId only if requester is an admin
+
     ChatMessage.ensureInitialMessages(
       userId,
       userWalletAddress,
-      requesterId,
+      adminIdForInitialMessages, // Pass the adminId here
       (initErr, initResult) => {
         if (initErr) {
           console.error("Error ensuring initial messages:", initErr);
@@ -173,3 +176,4 @@ exports.getUsersWithUnreadMessages = (req, res) => {
     res.status(200).json(users);
   });
 };
+

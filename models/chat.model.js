@@ -114,21 +114,23 @@ const ChatMessage = {
      * @param {number} adminId - The ID of the admin who triggered the initial messages creation.
      * @param {function} callback - Callback function (err, result)
      */
-    ensureInitialMessages: (userId, userWalletAddress, adminId, callback) => { // MODIFIED: Added adminId
+    ensureInitialMessages: (userId, userWalletAddress, adminId, callback) => {
         // First, check if any messages exist for this user
         db.query('SELECT COUNT(*) AS count FROM chat_messages WHERE user_id = ?', [userId], (err, results) => {
             if (err) {
-                console.error('Error checking for existing messages:', err);
+                console.error('Error checking for existing messages in ensureInitialMessages:', err);
                 return callback(err);
             }
 
             const messageCount = results[0].count;
 
             if (messageCount === 0) {
+                console.log(`No existing messages for user ${userId}. Creating initial messages.`);
                 // If no messages exist, insert the initial welcome messages
                 const initialMessages = [
-                    { sender_id: adminId, sender_role: 'admin', message_text: 'Welcome to customer service! How can I help you?' }, // MODIFIED: Use adminId
-                    // { sender_id: adminId, sender_role: 'admin', message_text: `Your unique TRC20/TRX deposit address is: ${userWalletAddress || 'Not assigned yet. Please visit the payment page to generate it.'}` }, // MODIFIED: Use adminId
+                    { sender_id: adminId || 0, sender_role: 'admin', message_text: 'Welcome to customer service! How can I help you?' }, // Use 0 or a default admin ID if adminId is null
+                    // Uncomment and adjust this if you want to send the wallet address as an initial message
+                    // { sender_id: adminId || 0, sender_role: 'admin', message_text: `Your unique TRC20/TRX deposit address is: ${userWalletAddress || 'Not assigned yet. Please visit the payment page to generate it.'}` },
                 ];
 
                 // Use a transaction or Promise.all for multiple inserts for atomicity
@@ -149,11 +151,18 @@ const ChatMessage = {
                 });
 
                 Promise.all(insertPromises)
-                    .then(() => callback(null, { message: 'Initial messages created.' }))
-                    .catch(promiseErr => callback(promiseErr));
+                    .then(() => {
+                        console.log(`Successfully inserted initial messages for user ${userId}.`);
+                        callback(null, { message: 'Initial messages created.' });
+                    })
+                    .catch(promiseErr => {
+                        console.error(`Failed to insert all initial messages for user ${userId}:`, promiseErr);
+                        callback(promiseErr);
+                    });
 
             } else {
                 // Messages already exist, do nothing
+                console.log(`Messages already exist for user ${userId}. No initial messages created.`);
                 callback(null, { message: 'Messages already exist, no initial messages created.' });
             }
         });
@@ -161,3 +170,4 @@ const ChatMessage = {
 };
 
 module.exports = ChatMessage;
+
