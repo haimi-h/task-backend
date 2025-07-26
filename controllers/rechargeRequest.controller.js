@@ -26,34 +26,28 @@ exports.submitRechargeRequest = (req, res) => {
         return res.status(400).json({ message: "Amount must be a positive number." });
     }
 
-    const receipt_image_url = null;
-    const whatsapp_number = null;
+    // Now, receipt_image_url and whatsapp_number are handled via chat,
+    // so they are initially null in the request.
+    const receipt_image_url = null; // Explicitly set to null
+    const whatsapp_number = null;   // Explicitly set to null
 
     RechargeRequest.create(userId, parseFloat(amount), currency, receipt_image_url, whatsapp_number, (err, result) => {
         if (err) {
-            console.error('Error submitting recharge request:', err);
-            return res.status(500).json({ message: "Failed to submit recharge request.", error: err.message });
+            console.error('Error creating recharge request:', err);
+            return res.status(500).json({ message: "Failed to submit recharge request." });
         }
-        
-        // --- ADD THIS BLOCK BACK ---
-        // This will now work without crashing the server.
-        // It creates the data object the admin frontend expects.
-        const newRequestData = {
-            id: result.insertId,
+
+        // Notify admins about the new recharge request
+        io.to('admins').emit('newRechargeRequest', {
+            id: result.insertId, // Assuming result.insertId gives the ID of the new request
             user_id: userId,
             amount: parseFloat(amount),
-            currency,
-            receipt_image_url,
-            whatsapp_number,
+            currency: currency,
             status: 'pending',
-            created_at: new Date().toISOString()
-            // Note: 'username' and 'phone' are not in this object because they aren't available here.
-            // Your admin page should ideally re-fetch or handle this gracefully.
-        };
-        io.to('admins').emit('newRechargeRequest', newRequestData);
-        // --- END OF BLOCK TO ADD ---
+            created_at: new Date().toISOString() // Or get from DB if available
+        });
 
-        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for further instructions." });
+        res.status(201).json({ message: "Recharge request submitted successfully. Please proceed to chat for verification." });
     });
 };
 /**

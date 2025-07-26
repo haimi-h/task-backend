@@ -7,8 +7,8 @@ const RechargeRequest = {
      * @param {number} userId - The ID of the user initiating the recharge.
      * @param {number} amount - The amount recharged.
      * @param {string} currency - The currency (e.g., 'USDT', 'TRX').
-     * @param {string} receiptImageUrl - URL to the uploaded receipt image.
-     * @param {string} whatsappNumber - User's WhatsApp number for receipt.
+     * @param {string|null} receiptImageUrl - URL to the uploaded receipt image (now optional).
+     * @param {string|null} whatsappNumber - User's WhatsApp number for receipt (now optional).
      * @param {function} callback - Callback function (err, result)
      */
     create: (userId, amount, currency, receiptImageUrl, whatsappNumber, callback) => {
@@ -16,7 +16,8 @@ const RechargeRequest = {
             INSERT INTO recharge_requests (user_id, amount, currency, receipt_image_url, whatsapp_number, status)
             VALUES (?, ?, ?, ?, ?, 'pending');
         `;
-        db.query(sql, [userId, amount, currency, receiptImageUrl, whatsappNumber], callback);
+        // Ensure receiptImageUrl and whatsappNumber are explicitly passed as null if not provided
+        db.query(sql, [userId, amount, currency, receiptImageUrl || null, whatsappNumber || null], callback);
     },
 
     /**
