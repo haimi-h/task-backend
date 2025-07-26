@@ -6,18 +6,7 @@ const { Server } = require('socket.io');
 const fs = require('fs');
 const path = require('path');
 
-const authRoutes = require('./routes/auth.routes');
-const taskRoutes = require('./routes/task.routes');
-const userRoutes = require('./routes/user.routes');
-const adminRoutes = require('./routes/admin.routes');
-const injectionPlanRoutes = require('./routes/injectionPlan.routes');
-const paymentRoutes = require('./routes/payment.routes');
-const chatRoutes = require('./routes/chat.routes');
-const rechargeRoutes = require('./routes/recharge.routes');
-
-// --- NEW: Require the controller directly here ---
-const rechargeRequestController = require('./controllers/rechargeRequest.controller');
-
+// --- Keep these initial requires at the top if they don't depend on io or controllers ---
 const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
 const Admin = require('./models/admin.model');
@@ -48,6 +37,7 @@ app.use(cors({
   credentials: true
 }));
 
+// --- Step 1: Initialize Socket.IO server ---
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -55,12 +45,28 @@ const io = new Server(server, {
   }
 });
 
-// --- NEW: Pass the Socket.IO instance to the controller AFTER it's defined ---
+// --- Step 2: Require the controller that needs 'io' *after* 'io' is defined ---
+// This ensures 'rechargeRequestController' is loaded and its exports are defined.
+const rechargeRequestController = require('./controllers/rechargeRequest.controller');
+
+// --- Step 3: Inject the 'io' instance into the controller ---
+// This ensures the controller's internal 'ioInstance' variable is set.
 rechargeRequestController.setIo(io);
+
+// --- Step 4: Now, require your route modules ---
+// These routes will now have access to fully configured controllers.
+const authRoutes = require('./routes/auth.routes');
+const taskRoutes = require('./routes/task.routes');
+const userRoutes = require('./routes/user.routes');
+const adminRoutes = require('./routes/admin.routes');
+const injectionPlanRoutes = require('./routes/injectionPlan.routes');
+const paymentRoutes = require('./routes/payment.routes');
+const chatRoutes = require('./routes/chat.routes');
+const rechargeRoutes = require('./routes/recharge.routes'); // THIS LINE IS NOW HERE
 
 app.use(express.json());
 
-// --- CLEANUP: Remove duplicate routes here ---
+// --- New route to serve products from products.json ---
 app.get('/api/products', (req, res) => {
   const productsFilePath = path.join(__dirname, 'products.json');
   fs.readFile(productsFilePath, 'utf8', (err, data) => {
@@ -78,16 +84,17 @@ app.get('/api/products', (req, res) => {
   });
 });
 
+// Existing Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
 app.use('/api/payment', paymentRoutes);
-app.use('/api/recharge', rechargeRoutes); // Keep this one
+app.use('/api/recharge', rechargeRoutes); // Keep this line only
 app.use('/api/chat', chatRoutes);
 
-
+// --- Socket.IO connection handling (remains the same) ---
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
@@ -95,7 +102,6 @@ io.on('connection', (socket) => {
     console.log('Backend Socket.IO: Received sendMessage event with data:', data);
     const { userId, senderId, senderRole, messageText, tempId } = data;
 
-    // --- FIX: Corrected syntax here based on previous advice ---
     if (!userId || !senderId || !senderRole || !messageText) {
       console.error('Invalid message data received via socket:', data);
       return;
@@ -121,6 +127,7 @@ io.on('connection', (socket) => {
 
         console.log('BROADCASTING MESSAGE:', JSON.stringify(newMessage, null, 2));
 
+        // Note: 'io' here is the one from the server.js scope, correctly defined.
         io.to(`user-${userId}`).emit('receiveMessage', newMessage);
         io.to('admins').emit('receiveMessage', newMessage);
 
@@ -153,7 +160,6 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
-
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
