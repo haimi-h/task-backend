@@ -11,11 +11,12 @@ const taskRoutes = require('./routes/task.routes');
 const userRoutes = require('./routes/user.routes');
 const adminRoutes = require('./routes/admin.routes');
 const injectionPlanRoutes = require('./routes/injectionPlan.routes');
-const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
-// const paymentRoutes = require('./routes/payment.routes'); // Existing payment routes
+const paymentRoutes = require('./routes/payment.routes');
 const chatRoutes = require('./routes/chat.routes');
-const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
-// const rechargeRoutes = require('./routes/recharge.routes'); // <--- ADD THIS LINE FOR NEW RECHARGE ROUTES
+const rechargeRoutes = require('./routes/recharge.routes');
+
+// --- NEW: Require the controller directly here ---
+const rechargeRequestController = require('./controllers/rechargeRequest.controller');
 
 const { checkTRXPayments } = require('./paymentMonitor');
 const User = require('./models/user.model');
@@ -27,7 +28,6 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// --- FIX: Ensure all frontend origins are listed here ---
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [
         'https://shopify-clone-orpin.vercel.app',
@@ -40,7 +40,6 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      // const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
@@ -49,17 +48,19 @@ app.use(cors({
   credentials: true
 }));
 
-// --- FIX: Ensure Socket.IO CORS configuration also uses the full allowedOrigins list ---
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins, // Use the same allowedOrigins for Socket.IO
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
 
+// --- NEW: Pass the Socket.IO instance to the controller AFTER it's defined ---
+rechargeRequestController.setIo(io);
+
 app.use(express.json());
 
-// --- New route to serve products from products.json ---
+// --- CLEANUP: Remove duplicate routes here ---
 app.get('/api/products', (req, res) => {
   const productsFilePath = path.join(__dirname, 'products.json');
   fs.readFile(productsFilePath, 'utf8', (err, data) => {
@@ -77,17 +78,15 @@ app.get('/api/products', (req, res) => {
   });
 });
 
-// Existing Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/injection-plans', injectionPlanRoutes);
-app.use('/api/payment', paymentRoutes); // Existing payment routes
-app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
-app.use('/api/payment', paymentRoutes); // Existing payment routes
-app.use('/api/recharge', rechargeRoutes); // <--- ADD THIS LINE TO MOUNT NEW RECHARGE ROUTES
+app.use('/api/payment', paymentRoutes);
+app.use('/api/recharge', rechargeRoutes); // Keep this one
 app.use('/api/chat', chatRoutes);
+
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
@@ -96,6 +95,7 @@ io.on('connection', (socket) => {
     console.log('Backend Socket.IO: Received sendMessage event with data:', data);
     const { userId, senderId, senderRole, messageText, tempId } = data;
 
+    // --- FIX: Corrected syntax here based on previous advice ---
     if (!userId || !senderId || !senderRole || !messageText) {
       console.error('Invalid message data received via socket:', data);
       return;
@@ -161,8 +161,6 @@ server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setInterval(async () => {
   console.log('💲 Checking for payments...');
   await checkTRXPayments();
-  // When you're ready for USDT, you'll add it here:
-  // await checkUSDTTRC20Payments();
 }, 15000);
 
 module.exports = { app, io, server };
