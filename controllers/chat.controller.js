@@ -55,6 +55,27 @@ exports.sendMessage = (req, res) => {
   );
 };
 
+exports.sendImageMessage = (req, res) => {
+  const { userId } = req.body;
+  const senderId = req.user.id;
+  const senderRole = req.user.role;
+
+  if (!req.file) {
+    return res.status(400).json({ message: 'Image file is required.' });
+  }
+
+  // Construct the image URL
+  const imageUrl = `/uploads/${req.file.filename}`;
+
+  ChatMessage.create(userId, senderId, senderRole, null, imageUrl, (err, result) => {
+    if (err) {
+      console.error('Error sending image message:', err);
+      return res.status(500).json({ message: 'Failed to send image message.' });
+    }
+    res.status(201).json({ message: 'Image sent successfully.', messageId: result.insertId, imageUrl });
+  });
+};
+
 /**
  * Fetches all chat messages for a specific user's conversation.
  * This can be accessed by the user themselves or by an admin.

@@ -40,7 +40,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
 });
-
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 setIo(io); // ✅ Store Socket.IO globally
 
 // Routes

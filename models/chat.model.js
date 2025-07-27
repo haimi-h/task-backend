@@ -10,13 +10,21 @@ const ChatMessage = {
      * @param {string} messageText - The content of the message.
      * @param {function} callback - Callback function (err, result)
      */
-    create: (userId, senderId, senderRole, messageText, callback) => {
-        const sql = `
-            INSERT INTO chat_messages (user_id, sender_id, sender_role, message_text)
-            VALUES (?, ?, ?, ?);
-        `;
-        db.query(sql, [userId, senderId, senderRole, messageText], callback);
-    },
+    // create: (userId, senderId, senderRole, messageText, callback) => {
+    //     const sql = `
+    //         INSERT INTO chat_messages (user_id, sender_id, sender_role, message_text)
+    //         VALUES (?, ?, ?, ?);
+    //     `;
+    //     db.query(sql, [userId, senderId, senderRole, messageText], callback);
+    // },
+    create: (userId, senderId, senderRole, messageText, imageUrl, callback) => {
+    const sql = `
+        INSERT INTO chat_messages (user_id, sender_id, sender_role, message_text, image_url)
+        VALUES (?, ?, ?, ?, ?);
+    `;
+    db.query(sql, [userId, senderId, senderRole, messageText, imageUrl], callback);
+},
+
 
     /**
      * Fetches all chat messages for a specific user.
@@ -32,6 +40,7 @@ const ChatMessage = {
                 cm.sender_id,
                 cm.sender_role,
                 cm.message_text,
+                cm.image_url,
                 cm.timestamp,
                 cm.is_read_by_user,
                 cm.is_read_by_admin,
