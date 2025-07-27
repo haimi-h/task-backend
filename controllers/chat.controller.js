@@ -155,14 +155,15 @@ exports.getMessages = (req, res) => {
                 requesterRole === "user"
                   ? messages.filter(
                       (msg) =>
-                        !msg.message_text.startsWith(
-                          "Your unique TRC20/TRX deposit address"
-                        )
+                        // Add a check here: Ensure message_text exists and is a string
+                        !(msg.message_text && typeof msg.message_text === 'string' &&
+                          msg.message_text.startsWith(
+                            "Your unique TRC20/TRX deposit address"
+                          ))
                     )
                   : messages;
 
               res.status(200).json(sanitizedMessages);
-            //   res.status(200).json(messages);
             }
           );
         });
