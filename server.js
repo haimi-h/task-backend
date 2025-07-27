@@ -80,29 +80,35 @@ io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
   socket.on('sendMessage', (data) => {
-    const { userId, senderId, senderRole, messageText, tempId } = data;
-    if (!userId || !senderId || !senderRole || !messageText) return;
+  const { userId, senderId, senderRole, messageText, tempId } = data;
+  if (!userId || !senderId || !senderRole || !messageText) return;
 
-    ChatMessage.create(userId, senderId, senderRole, messageText, (err, result) => {
-      if (err) return console.error('Socket msg save error:', err);
+  // FIX: Pass 'null' for the imageUrl argument to match the new function signature
+  ChatMessage.create(userId, senderId, senderRole, messageText, null, (err, result) => { //
+    if (err) {
+      // This will now log the TypeError if it happens, but the fix above should prevent it.
+      console.error('Socket msg save error:', err);
+      return; 
+    }
 
-      const newMsg = {
-        id: result.insertId,
-        user_id: userId,
-        sender_id: senderId,
-        sender_role: senderRole,
-        message_text: messageText,
-        timestamp: new Date().toISOString(),
-        tempId,
-      };
+    const newMsg = {
+      id: result.insertId,
+      user_id: userId,
+      sender_id: senderId,
+      sender_role: senderRole,
+      message_text: messageText,
+      image_url: null, // Ensure the broadcasted message also has this field
+      timestamp: new Date().toISOString(),
+      tempId,
+    };
 
-      io.to(`user-${userId}`).emit('receiveMessage', newMsg);
-      io.to('admins').emit('receiveMessage', newMsg);
-      if (senderRole === 'user') {
-        io.to('admins').emit('unreadConversationUpdate', { userId, hasUnread: true });
-      }
-    });
+    io.to(`user-${userId}`).emit('receiveMessage', newMsg);
+    io.to('admins').emit('receiveMessage', newMsg);
+    if (senderRole === 'user') {
+      io.to('admins').emit('unreadConversationUpdate', { userId, hasUnread: true });
+    }
   });
+});
 
   socket.on('joinRoom', (room) => socket.join(room));
   socket.on('leaveRoom', (room) => socket.leave(room));
