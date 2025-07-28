@@ -19,28 +19,25 @@ exports.getTask = (req, res) => {
             return res.status(404).json({ message: "User not found." });
         }
 
-        // --- START: MODIFIED MINIMUM BALANCE CHECK ---
+        // --- START: ADDED MINIMUM BALANCE CHECK ---
         const walletBalance = parseFloat(user.wallet_balance || 0);
         const minimumBalanceRequired = 2.00;
 
         if (walletBalance < minimumBalanceRequired) {
             console.log(`[Task Controller - getTask] User ${userId} blocked from starting task. Balance ${walletBalance} is less than minimum ${minimumBalanceRequired}.`);
-            // **FIX**: Changed status from 403 to 200. This prevents the frontend's
-            // generic error handler from logging the user out. The frontend will now
-            // receive this as a "successful" request and must check the `task` field to see if it's null.
-            return res.status(200).json({
+            return res.status(403).json({
                 message: "You can't evaluate products with the current amount. At least you should recharge $2 minimum.",
                 task: null, // Ensure no task is sent
-                errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS'
+                errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS' // Added for frontend to identify the error type easily
             });
         }
-        // --- END: MODIFIED MINIMUM BALANCE CHECK ---
+        // --- END: ADDED MINIMUM BALANCE CHECK ---
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
         const currentCompletedTasks = parseInt(user.completed_orders || 0, 10);
         const dailyLimit = parseInt(user.daily_orders || 0, 10);
-        const currentUncompletedTasks = parseInt(user.uncompleted_orders || 0, 10);
+        const currentUncompletedTasks = parseInt(user.uncompleted_orders || 0, 10); // Get uncompleted tasks
 
         console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}, Current Uncompleted: ${currentUncompletedTasks}`);
 
@@ -104,8 +101,6 @@ exports.getTask = (req, res) => {
         });
     });
 };
-
-// ... the rest of the file (submitTaskRating, getDashboardSummary) remains unchanged ...
 
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
@@ -176,18 +171,17 @@ exports.submitTaskRating = (req, res) => {
                              }, 5000);
                         });
 
-                    } 
-                    else {
+                    } else {
                         let profitToAdd = 0;
-                        // if (user.default_task_profit) { 
-                        //     profitToAdd = parseFloat(user.default_task_profit);
-                        // } else {
-                        //     Task.getProductProfit(productId, (profitErr, productProfit) => {
-                        //         if (!profitErr && productProfit) {
-                        //             profitToAdd = parseFloat(productProfit);
-                        //         }
-                        //     });
-                        // }
+                        if (user.default_task_profit) { 
+                            profitToAdd = parseFloat(user.default_task_profit);
+                        } else {
+                            Task.getProductProfit(productId, (profitErr, productProfit) => {
+                                if (!profitErr && productProfit) {
+                                    profitToAdd = parseFloat(productProfit);
+                                }
+                            });
+                        }
 
                         User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
                             if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
