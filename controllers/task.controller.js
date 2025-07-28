@@ -105,8 +105,6 @@ exports.getTask = (req, res) => {
     });
 };
 
-// ... the rest of the file (submitTaskRating, getDashboardSummary) remains unchanged ...
-
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body; 
@@ -177,21 +175,23 @@ exports.submitTaskRating = (req, res) => {
                         });
 
                     } else {
-                        let profitToAdd = 0;
-                        if (user.default_task_profit) { 
-                            profitToAdd = parseFloat(user.default_task_profit);
-                        } else {
-                            Task.getProductProfit(productId, (profitErr, productProfit) => {
-                                if (!profitErr && productProfit) {
-                                    profitToAdd = parseFloat(productProfit);
-                                }
-                            });
-                        }
+                        // =================== MODIFICATION START ===================
+                        // The logic that used 'default_task_profit' has been removed.
+                        // We now directly fetch the profit from the product itself.
+                        Task.getProductProfit(productId, (profitErr, productProfit) => {
+                            if (profitErr) {
+                                console.error(`[submitTaskRating] Error fetching profit for product ${productId}:`, profitErr);
+                                // Even if profit lookup fails, we can proceed with 0 profit to not break the flow
+                            }
 
-                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
-                            if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                            res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
+                            const profitToAdd = parseFloat(productProfit || 0);
+
+                            User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
+                                if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                                res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
+                            });
                         });
+                        // =================== MODIFICATION END ===================
                     }
                 });
 
@@ -207,7 +207,7 @@ exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
 
     if (!userId) {
-        return res.status(401).json({ message: "User not authenticated." });
+        return res.status(41).json({ message: "User not authenticated." });
     }
 
     Task.getDashboardCountsForUser(userId, (err, counts) => {
