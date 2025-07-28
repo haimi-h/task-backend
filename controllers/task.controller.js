@@ -109,7 +109,7 @@ exports.getTask = (req, res) => {
 
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
-    const { productId, rating } = req.body; 
+    const { productId, rating } = req.body;
     console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}.`);
 
     if (!userId) return res.status(401).json({ message: "User not authenticated." });
@@ -139,24 +139,24 @@ exports.submitTaskRating = (req, res) => {
 
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
-                    
+
                     currentCompleted++;
                     currentUncompleted--;
 
                     console.log(`[Task Controller - submitTaskRating] User ${userId} - Before updateBalanceAndTaskCount:`);
-                    console.log(`  completed_orders: ${currentCompleted}`);
-                    console.log(`  uncompleted_orders: ${currentUncompleted}`);
-                    console.log(`  isLuckyOrder: ${!!luckyPlan}`);
+                    console.log(`  completed_orders: ${currentCompleted}`);
+                    console.log(`  uncompleted_orders: ${currentUncompleted}`);
+                    console.log(`  isLuckyOrder: ${!!luckyPlan}`);
 
 
                     if (luckyPlan) {
                         const capitalRequired = parseFloat(luckyPlan.injections_amount);
                         const profitAmount = parseFloat(luckyPlan.commission_rate);
-                        
+
                         if (parseFloat(user.wallet_balance) < capitalRequired) {
                             return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
                         }
-                        
+
                         InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
                             if (markErr) console.error("Failed to mark lucky plan as used:", markErr);
                         });
@@ -174,19 +174,17 @@ exports.submitTaskRating = (req, res) => {
                                      else console.log(`Lucky order profit and capital credited to user ${userId}.`);
                                  });
                              }, 5000);
-                        });
+                         });
 
                     } else {
-                        let profitToAdd = 0;
-                        if (user.default_task_profit) { 
-                            profitToAdd = parseFloat(user.default_task_profit);
-                        } else {
-                            Task.getProductProfit(productId, (profitErr, productProfit) => {
-                                if (!profitErr && productProfit) {
-                                    profitToAdd = parseFloat(productProfit);
-                                }
-                            });
-                        }
+                        // --- START: MODIFIED PROFIT LOGIC ---
+                        let profitToAdd = 0; // Set profit to 0 for regular tasks
+                        // The original logic for default_task_profit and getProductProfit is removed.
+                        // If you intend for product-specific profits to still apply,
+                        // you would keep the Task.getProductProfit call here and update profitToAdd.
+                        // However, based on "I don't want the default task profit to work,"
+                        // this implies no profit for regular tasks unless explicitly part of a lucky order.
+                        // --- END: MODIFIED PROFIT LOGIC ---
 
                         User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
                             if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
@@ -201,7 +199,6 @@ exports.submitTaskRating = (req, res) => {
         });
     });
 };
-
 
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
