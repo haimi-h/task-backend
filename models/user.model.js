@@ -51,33 +51,34 @@ const User = {
         db.query(sql, [completedCount, uncompletedCount, userId], callback);
     },
 
-    updateBalanceAndTaskCount: (userId, amount, type, callback) => { // Removed completedCount, uncompletedCount from parameters
+    updateBalanceAndTaskCount: (userId, amount, type, callback) => {
         let sql;
-        const balanceUpdate = (type === 'add') ? 'wallet_balance = wallet_balance + ?' :
-                              (type === 'deduct') ? 'wallet_balance = wallet_balance - ?' :
-                              null;
 
-        if (!balanceUpdate) {
+        if (type === 'add') { // This means a task has just been successfully completed (profit added)
+            sql = `
+                UPDATE users
+                SET
+                    wallet_balance = wallet_balance + ?,
+                    completed_orders = completed_orders + 1,
+                    uncompleted_orders = CASE WHEN uncompleted_orders > 0 THEN uncompleted_orders - 1 ELSE 0 END,
+                    daily_orders = CASE WHEN daily_orders > 0 THEN daily_orders - 1 ELSE 0 END,
+                    last_activity_at = NOW()
+                WHERE id = ?;
+            `;
+            db.query(sql, [amount, userId], callback);
+        } else if (type === 'deduct') { // This is likely for lucky order capital deduction (no order count change here)
+             sql = `
+                UPDATE users
+                SET
+                    wallet_balance = wallet_balance - ?,
+                    last_activity_at = NOW()
+                WHERE id = ?;
+            `;
+            db.query(sql, [amount, userId], callback);
+        } else {
             return callback(new Error('Invalid update type for balance.'), null);
         }
-
-        // Modified SQL query to decrement daily_orders and uncompleted_orders,
-        // and increment completed_orders
-        sql = `
-            UPDATE users
-            SET
-                ${balanceUpdate},
-                completed_orders = completed_orders + 1,      -- Increment completed orders
-                uncompleted_orders = uncompleted_orders - 1,  -- Decrement uncompleted orders
-                daily_orders = daily_orders - 1               -- Decrement daily orders
-            WHERE id = ?
-            AND uncompleted_orders > 0; -- Ensure we don't go below zero for uncompleted_orders
-        `;
-
-        // The parameters will now only include amount and userId
-        db.query(sql, [amount, userId], callback);
     },
-
     /**
      * NEW METHOD: A simpler function to update only the wallet balance.
      * Used for recharge approvals and other direct balance adjustments.

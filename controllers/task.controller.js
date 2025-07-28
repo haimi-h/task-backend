@@ -1,3 +1,5 @@
+// your-project/controllers/task.controller.js
+
 const Task = require('../models/task.model');
 const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
@@ -19,22 +21,17 @@ exports.getTask = (req, res) => {
             return res.status(404).json({ message: "User not found." });
         }
 
-        // --- START: MODIFIED MINIMUM BALANCE CHECK ---
         const walletBalance = parseFloat(user.wallet_balance || 0);
         const minimumBalanceRequired = 2.00;
 
         if (walletBalance < minimumBalanceRequired) {
             console.log(`[Task Controller - getTask] User ${userId} blocked from starting task. Balance ${walletBalance} is less than minimum ${minimumBalanceRequired}.`);
-            // **FIX**: Changed status from 403 to 200. This prevents the frontend's
-            // generic error handler from logging the user out. The frontend will now
-            // receive this as a "successful" request and must check the `task` field to see if it's null.
             return res.status(200).json({
                 message: "You can't evaluate products with the current amount. At least you should recharge $2 minimum.",
-                task: null, // Ensure no task is sent
+                task: null,
                 errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS'
             });
         }
-        // --- END: MODIFIED MINIMUM BALANCE CHECK ---
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
@@ -89,7 +86,6 @@ exports.getTask = (req, res) => {
                     price: parseFloat(task.price) || 0,
                     capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
                     profit: isLuckyOrder ? luckyOrderProfit : 0
-                    // profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.default_task_profit) || parseFloat(task.profit) || 0)
                 };
 
                 console.log(`[Task Controller - getTask] User ${userId} - Task fetched: ${taskToSend.name}, Is Lucky Order: ${isLuckyOrder}, Profit: ${taskToSend.profit}`);
@@ -106,11 +102,9 @@ exports.getTask = (req, res) => {
     });
 };
 
-// ... the rest of the file (submitTaskRating, getDashboardSummary) remains unchanged ...
-
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
-    const { productId, rating } = req.body; 
+    const { productId, rating } = req.body;
     console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}.`);
 
     if (!userId) return res.status(401).json({ message: "User not authenticated." });
@@ -140,9 +134,6 @@ exports.submitTaskRating = (req, res) => {
 
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
-                    
-                    currentCompleted++;
-                    currentUncompleted--;
 
                     console.log(`[Task Controller - submitTaskRating] User ${userId} - Before updateBalanceAndTaskCount:`);
                     console.log(`  completed_orders: ${currentCompleted}`);
@@ -153,46 +144,47 @@ exports.submitTaskRating = (req, res) => {
                     if (luckyPlan) {
                         const capitalRequired = parseFloat(luckyPlan.injections_amount);
                         const profitAmount = parseFloat(luckyPlan.commission_rate);
-                        
+
                         if (parseFloat(user.wallet_balance) < capitalRequired) {
                             return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
                         }
-                        
+
                         InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
                             if (markErr) console.error("Failed to mark lucky plan as used:", markErr);
                         });
 
-                        User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', currentCompleted, currentUncompleted, (deductErr) => {
-                             if (deductErr) return res.status(500).json({ message: "Failed to process lucky order deduction." });
+                        User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
+                            if (deductErr) return res.status(500).json({ message: "Failed to process lucky order deduction." });
 
-                             const returnAmount = capitalRequired + profitAmount;
-                             message = `Lucky task submitted! $${capitalRequired.toFixed(2)} deducted. $${returnAmount.toFixed(2)} will be credited shortly.`;
-                             res.status(200).json({ message, isCompleted: true });
+                            const returnAmount = capitalRequired + profitAmount;
+                            message = `Lucky task submitted! $${capitalRequired.toFixed(2)} deducted. $${returnAmount.toFixed(2)} will be credited shortly.`;
+                            res.status(200).json({ message, isCompleted: true });
 
-                             setTimeout(() => {
-                                 User.updateBalanceAndTaskCount(userId, returnAmount, 'add', null, null, (addErr) => {
-                                     if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
-                                     else console.log(`Lucky order profit and capital credited to user ${userId}.`);
-                                 });
-                             }, 5000);
+                            setTimeout(() => {
+                                User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
+                                    if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
+                                    else console.log(`Lucky order profit and capital credited to user ${userId}.`);
+                                });
+                            }, 5000);
                         });
 
                     } else {
-                        let profitToAdd = 0;
-                        if (user.default_task_profit) { 
-                            profitToAdd = parseFloat(user.default_task_profit);
-                        } else {
-                            Task.getProductProfit(productId, (profitErr, productProfit) => {
-                                if (!profitErr && productProfit) {
-                                    profitToAdd = parseFloat(productProfit);
-                                }
-                            });
-                        }
+                        // --- START: MODIFIED BLOCK (removed default_task_profit logic) ---
+                        // Always get product profit if it's not a lucky order
+                        Task.getProductProfit(productId, (profitErr, productProfit) => {
+                            let profitToAdd = 0;
+                            if (!profitErr && productProfit) {
+                                profitToAdd = parseFloat(productProfit);
+                            } else {
+                                console.warn(`[Task Controller - submitTaskRating] No product profit found for product ${productId}. Defaulting to 0.`);
+                            }
 
-                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
-                            if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                            res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
+                            User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
+                                if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                                res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
+                            });
                         });
+                        // --- END: MODIFIED BLOCK ---
                     }
                 });
 
@@ -202,7 +194,6 @@ exports.submitTaskRating = (req, res) => {
         });
     });
 };
-
 
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
