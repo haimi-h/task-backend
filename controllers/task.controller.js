@@ -154,7 +154,10 @@ exports.submitTaskRating = (req, res) => {
                         });
 
                         User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
-                            if (deductErr) return res.status(500).json({ message: "Failed to process lucky order deduction." });
+                            if (deductErr) {
+                                console.error(`[Task Controller - submitTaskRating] Lucky order deduction error for user ${userId}:`, deductErr); // ADDED LOG
+                                return res.status(500).json({ message: "Failed to process lucky order deduction." });
+                            }
 
                             const returnAmount = capitalRequired + profitAmount;
                             message = `Lucky task submitted! $${capitalRequired.toFixed(2)} deducted. $${returnAmount.toFixed(2)} will be credited shortly.`;
@@ -162,15 +165,16 @@ exports.submitTaskRating = (req, res) => {
 
                             setTimeout(() => {
                                 User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
-                                    if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
-                                    else console.log(`Lucky order profit and capital credited to user ${userId}.`);
+                                    if (addErr) {
+                                        console.error(`Error adding profit for lucky order user ${userId}:`, addErr); // ADDED LOG
+                                    } else {
+                                        console.log(`Lucky order profit and capital credited to user ${userId}.`);
+                                    }
                                 });
                             }, 5000);
                         });
 
                     } else {
-                        // --- START: MODIFIED BLOCK (removed default_task_profit logic) ---
-                        // Always get product profit if it's not a lucky order
                         Task.getProductProfit(productId, (profitErr, productProfit) => {
                             let profitToAdd = 0;
                             if (!profitErr && productProfit) {
@@ -180,11 +184,13 @@ exports.submitTaskRating = (req, res) => {
                             }
 
                             User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
-                                if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                                if (updateErr) {
+                                    console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr); // ADDED LOG
+                                    return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                                }
                                 res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
                             });
                         });
-                        // --- END: MODIFIED BLOCK ---
                     }
                 });
 
