@@ -51,7 +51,7 @@ const User = {
         db.query(sql, [completedCount, uncompletedCount, userId], callback);
     },
 
-    updateBalanceAndTaskCount: (userId, amount, type, completedCount, uncompletedCount, callback) => {
+    updateBalanceAndTaskCount: (userId, amount, type, callback) => { // Removed completedCount, uncompletedCount from parameters
         let sql;
         const balanceUpdate = (type === 'add') ? 'wallet_balance = wallet_balance + ?' :
                               (type === 'deduct') ? 'wallet_balance = wallet_balance - ?' :
@@ -61,20 +61,21 @@ const User = {
             return callback(new Error('Invalid update type for balance.'), null);
         }
 
+        // Modified SQL query to decrement daily_orders and uncompleted_orders,
+        // and increment completed_orders
         sql = `
             UPDATE users
             SET
                 ${balanceUpdate},
-                completed_orders = ?,\
-                uncompleted_orders = ?,\
-                daily_orders = CASE
-                    WHEN ? = 0 THEN 0
-                    ELSE daily_orders
-                END
-            WHERE id = ?;
+                completed_orders = completed_orders + 1,      -- Increment completed orders
+                uncompleted_orders = uncompleted_orders - 1,  -- Decrement uncompleted orders
+                daily_orders = daily_orders - 1               -- Decrement daily orders
+            WHERE id = ?
+            AND uncompleted_orders > 0; -- Ensure we don't go below zero for uncompleted_orders
         `;
 
-        db.query(sql, [amount, completedCount, uncompletedCount, uncompletedCount, userId], callback);
+        // The parameters will now only include amount and userId
+        db.query(sql, [amount, userId], callback);
     },
 
     /**
