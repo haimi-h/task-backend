@@ -102,45 +102,86 @@ exports.injectWallet = (req, res) => {
  * This endpoint should be protected by checkAdminRole middleware.
  * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit.
  */
-exports.updateUserProfile = (req, res) => {
-    const { userId } = req.params;
-    // Extract fields that can be updated.
-    // Ensure wallet_balance is included if sent from frontend.
-    const { username, phone, new_password, withdrawal_wallet_address, wallet_balance } = req.body;
+exports.updateUserProfile = async (req, res) => {
+    const userId = req.params.userId;
+    // Include walletAddress and wallet_balance in destructuring
+    const { username, phone, email, walletAddress, new_password, current_password, withdrawal_wallet_address, new_withdrawal_password, current_withdrawal_password, wallet_balance } = req.body;
 
-    const userDataToUpdate = {};
-    if (username !== undefined) userDataToUpdate.username = username;
-    if (phone !== undefined) userDataToUpdate.phone = phone;
-    if (withdrawal_wallet_address !== undefined) userDataToUpdate.withdrawal_wallet_address = withdrawal_wallet_address;
-    if (wallet_balance !== undefined) userDataToUpdate.wallet_balance = parseFloat(wallet_balance); // Parse to float
+    try {
+        const user = await new Promise((resolve, reject) => {
+            User.findById(userId, (err, result) => {
+                if (err) return reject(err);
+                if (!result) return reject(new Error('User not found.'));
+                resolve(result);
+            });
+        });
 
-    // Handle password update if new_password is provided
-    if (new_password) {
-        // You should hash the password before saving it to the database
-        // Example (assuming bcryptjs):
-        // const salt = bcrypt.genSaltSync(10);
-        // userDataToUpdate.password = bcrypt.hashSync(new_password, salt);
-        // For now, let's assume hashing is handled in your model or you're aware
-        console.warn("Password update logic for admin.controller.js: Ensure new_password is hashed before saving.");
-        userDataToUpdate.password = new_password; // Placeholder: hash this in production!
-    }
+        const updatedFields = {};
 
-    if (Object.keys(userDataToUpdate).length === 0) {
-        return res.status(400).json({ message: "No fields provided for update." });
-    }
-
-    // Assuming User.updateProfile can handle multiple fields dynamically
-    User.updateProfile(userId, userDataToUpdate, (err, result) => {
-        if (err) {
-            console.error('Error updating user profile:', err);
-            return res.status(500).json({ message: "Failed to update user profile.", error: err.message });
+        if (username !== undefined && username !== user.username) {
+            updatedFields.username = username;
         }
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: "User not found or no changes made." });
+        if (phone !== undefined && phone !== user.phone) {
+            updatedFields.phone = phone;
         }
-        res.status(200).json({ message: "User profile updated successfully." });
-    });
+        if (email !== undefined && email !== user.email) {
+            updatedFields.email = email;
+        }
+        // Handle recharge wallet address
+        if (walletAddress !== undefined && walletAddress !== user.walletAddress) {
+            updatedFields.walletAddress = walletAddress;
+        }
+        // Handle withdrawal wallet address
+        if (withdrawal_wallet_address !== undefined && withdrawal_wallet_address !== user.withdrawal_wallet_address) {
+            updatedFields.withdrawal_wallet_address = withdrawal_wallet_address;
+        }
+        // Handle wallet balance update
+        if (wallet_balance !== undefined && parseFloat(wallet_balance) !== parseFloat(user.wallet_balance)) {
+            updatedFields.wallet_balance = parseFloat(wallet_balance);
+        }
+        // REMOVED: default_task_profit as per your request
+
+        // Handle main password change
+        if (new_password && current_password) {
+            const isPasswordMatch = await bcrypt.compare(current_password, user.password);
+            if (!isPasswordMatch) {
+                return res.status(401).json({ message: 'Incorrect current password.' });
+            }
+            updatedFields.password = await bcrypt.hash(new_password, 10);
+        } else if (new_password || current_password) {
+            return res.status(400).json({ message: 'Both current password and new password are required to change password.' });
+        }
+
+        // Handle withdrawal password change
+        if (new_withdrawal_password && current_withdrawal_password) {
+            const isWithdrawalPasswordMatch = await bcrypt.compare(current_withdrawal_password, user.withdrawal_password);
+            if (!isWithdrawalPasswordMatch) {
+                return res.status(401).json({ message: 'Incorrect current withdrawal password.' });
+            }
+            updatedFields.withdrawal_password = await bcrypt.hash(new_withdrawal_password, 10);
+        } else if (new_withdrawal_password || current_withdrawal_password) {
+            return res.status(400).json({ message: 'Both current withdrawal password and new withdrawal password are required to change withdrawal password.' });
+        }
+
+        if (Object.keys(updatedFields).length === 0) {
+            return res.status(200).json({ message: 'No changes detected.' });
+        }
+
+        await new Promise((resolve, reject) => {
+            User.updateProfile(userId, updatedFields, (err, result) => {
+                if (err) return reject(err);
+                resolve(result);
+            });
+        });
+
+        res.status(200).json({ message: 'User profile updated successfully.' });
+
+    } catch (error) {
+        console.error('Error updating user profile:', error);
+        res.status(500).json({ message: error.message || 'Failed to update user profile.' });
+    }
 };
+
 
 /**
  * Generates a new TRC20 wallet address and assigns it to a specific user.
