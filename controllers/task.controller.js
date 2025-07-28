@@ -18,6 +18,17 @@ exports.getTask = (req, res) => {
         if (!user) {
             return res.status(404).json({ message: "User not found." });
         }
+        const walletBalance = parseFloat(user.wallet_balance || 0);
+        const minimumBalanceRequired = 2.00;
+
+        if (walletBalance < minimumBalanceRequired) {
+            console.log(`[Task Controller - getTask] User ${userId} blocked from starting task. Balance ${walletBalance} is less than minimum ${minimumBalanceRequired}.`);
+            return res.status(403).json({
+                message: "You can't evaluate products with the current amount. At least you should recharge $2 minimum.",
+                task: null, // Ensure no task is sent
+                errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS' // Added for frontend to identify the error type easily
+            });
+        }
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
