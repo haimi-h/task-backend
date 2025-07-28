@@ -28,7 +28,8 @@ const User = {
     },
 
     findById: (id, callback) => {
-        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
+        // const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
+        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 console.error(`[User Model - findById] Database error for User ${id}:`, err);
