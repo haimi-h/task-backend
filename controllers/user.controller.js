@@ -31,7 +31,7 @@ exports.getUserProfile = (req, res) => {
                 walletAddress: user.walletAddress || null,
                 withdrawal_wallet_address: user.withdrawal_wallet_address || null,
                 role: user.role, // Added role
-                default_task_profit: user.default_task_profit // Added default profit
+                // default_task_profit: user.default_task_profit // Added default profit
             }
         });
     });
@@ -39,7 +39,7 @@ exports.getUserProfile = (req, res) => {
 
 exports.updateUserProfile = async (req, res) => {
     const userId = req.params.userId;
-    const { username, phone, email, walletAddress, newPassword, currentPassword, default_task_profit, role, withdrawal_wallet_address, new_withdrawal_password, current_withdrawal_password } = req.body;
+    const { username, phone, email, walletAddress, newPassword, currentPassword, role, withdrawal_wallet_address, new_withdrawal_password, current_withdrawal_password } = req.body;
 
     try {
         const user = await new Promise((resolve, reject) => {
@@ -65,9 +65,9 @@ exports.updateUserProfile = async (req, res) => {
         if (walletAddress !== undefined && walletAddress !== user.walletAddress) {
             updatedFields.walletAddress = walletAddress;
         }
-        if (default_task_profit !== undefined && default_task_profit !== user.default_task_profit) {
-            updatedFields.default_task_profit = default_task_profit;
-        }
+        // if (default_task_profit !== undefined && default_task_profit !== user.default_task_profit) {
+        //     updatedFields.default_task_profit = default_task_profit;
+        // }
         if (role !== undefined && role !== user.role) {
             updatedFields.role = role;
         }

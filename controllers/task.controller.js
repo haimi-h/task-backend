@@ -88,7 +88,8 @@ exports.getTask = (req, res) => {
                     description: task.description,
                     price: parseFloat(task.price) || 0,
                     capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
-                    profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.default_task_profit) || parseFloat(task.profit) || 0)
+                    profit: isLuckyOrder ? luckyOrderProfit : 0
+                    // profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.default_task_profit) || parseFloat(task.profit) || 0)
                 };
 
                 console.log(`[Task Controller - getTask] User ${userId} - Task fetched: ${taskToSend.name}, Is Lucky Order: ${isLuckyOrder}, Profit: ${taskToSend.profit}`);

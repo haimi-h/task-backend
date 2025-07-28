@@ -28,8 +28,8 @@ const Admin = {
                 u.walletAddress,    -- ADDED: to fetch the new wallet address column (recharge wallet)
                 u.withdrawal_wallet_address, -- ADDED: to fetch the withdrawal wallet address
                 u.role,
-                u.created_at,
-                u.default_task_profit -- ADDED: Default profit for a task
+                u.created_at
+                
             FROM
                 users u
             LEFT JOIN
@@ -170,10 +170,10 @@ const Admin = {
             params.push(updates.wallet_balance);
         }
         // ADDED: default_task_profit update
-        if (updates.defaultTaskProfit !== undefined) {
-            updateFields.push('default_task_profit = ?');
-            params.push(updates.defaultTaskProfit);
-        }
+        // if (updates.defaultTaskProfit !== undefined) {
+        //     updateFields.push('default_task_profit = ?');
+        //     params.push(updates.defaultTaskProfit);
+        // }
 
 
         if (updateFields.length === 0) {
