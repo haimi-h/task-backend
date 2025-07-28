@@ -176,17 +176,18 @@ exports.submitTaskRating = (req, res) => {
                              }, 5000);
                         });
 
-                    } else {
+                    } 
+                    else {
                         let profitToAdd = 0;
-                        if (user.default_task_profit) { 
-                            profitToAdd = parseFloat(user.default_task_profit);
-                        } else {
-                            Task.getProductProfit(productId, (profitErr, productProfit) => {
-                                if (!profitErr && productProfit) {
-                                    profitToAdd = parseFloat(productProfit);
-                                }
-                            });
-                        }
+                        // if (user.default_task_profit) { 
+                        //     profitToAdd = parseFloat(user.default_task_profit);
+                        // } else {
+                        //     Task.getProductProfit(productId, (profitErr, productProfit) => {
+                        //         if (!profitErr && productProfit) {
+                        //             profitToAdd = parseFloat(productProfit);
+                        //         }
+                        //     });
+                        // }
 
                         User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', currentCompleted, currentUncompleted, (updateErr) => {
                             if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
