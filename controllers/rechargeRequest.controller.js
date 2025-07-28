@@ -79,6 +79,22 @@ exports.getPendingRechargeRequests = (req, res) => {
     res.status(200).json(results);
   });
 };
+exports.getRechargeHistoryForUser = (req, res) => {
+  const { userId } = req.params;
+
+  if (!userId) {
+    return res.status(400).json({ message: "User ID is required." });
+  }
+
+  RechargeRequest.getHistoryByUserId(userId, (err, requests) => {
+    if (err) {
+      console.error(`Error fetching recharge history for user ${userId}:`, err);
+      return res.status(500).json({ message: "Failed to fetch recharge history." });
+    }
+    // The model will return an array of requests, which is exactly what the frontend expects.
+    res.status(200).json(requests);
+  });
+};
 
 // Approve a recharge request (admin)
 exports.approveRechargeRequest = (req, res) => {

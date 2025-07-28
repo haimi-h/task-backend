@@ -24,6 +24,13 @@ router.put('/admin/reject/:requestId', authenticateToken, adminController.checkA
 
 // Route for users to view their own rejected recharge requests
 router.get('/user/rejected', authenticateToken, rechargeRequestController.getUserRejectedRecharges);
+router.get(
+    '/history/:userId', 
+    authenticateToken, 
+    adminController.checkAdminRole, 
+    rechargeRequestController.getRechargeHistoryForUser
+);
+
 
 
 module.exports = router;

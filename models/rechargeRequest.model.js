@@ -48,6 +48,26 @@ const RechargeRequest = {
         `;
         db.query(sql, callback);
     },
+    
+    getHistoryByUserId: (userId, callback) => {
+        const sql = `
+            SELECT
+                id,
+                amount,
+                currency,
+                status,
+                admin_notes,
+                created_at,
+                updated_at
+            FROM
+                recharge_requests
+            WHERE
+                user_id = ?
+            ORDER BY
+                created_at DESC;
+        `;
+        db.query(sql, [userId], callback);
+    },
 
     /**
      * Updates the status of a recharge request.
