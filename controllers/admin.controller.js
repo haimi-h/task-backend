@@ -42,7 +42,8 @@ exports.getAllUsers = (req, res) => {
             return res.status(500).json({ message: "Failed to retrieve users." });
         }
         // res.status(200).json({ users, totalCount, page, limit });
-        res.status(200).json({ users, totalUsers: totalCount, page, limit });
+        // res.status(200).json({ users, totalUsers: totalCount, page, limit });
+        res.status(200).json({ users, totalCount, page, limit });
     });
 };
 
