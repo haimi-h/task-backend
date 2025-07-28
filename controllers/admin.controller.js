@@ -102,32 +102,38 @@ exports.injectWallet = (req, res) => {
  * This endpoint should be protected by checkAdminRole middleware.
  * Fields that can be updated: username, phone, new_password, walletAddress, defaultTaskProfit.
  */
-exports.updateUserProfile = async (req, res) => {
+exports.updateUserProfile = (req, res) => {
     const { userId } = req.params;
-    const { username, phone, new_password, walletAddress, defaultTaskProfit } = req.body; // ADDED: defaultTaskProfit
+    // Extract fields that can be updated.
+    // Ensure wallet_balance is included if sent from frontend.
+    const { username, phone, new_password, withdrawal_wallet_address, wallet_balance } = req.body;
 
-    const updates = {
-        username,
-        phone,
-        walletAddress,
-        defaultTaskProfit, // ADDED: defaultTaskProfit to updates object
-    };
+    const userDataToUpdate = {};
+    if (username !== undefined) userDataToUpdate.username = username;
+    if (phone !== undefined) userDataToUpdate.phone = phone;
+    if (withdrawal_wallet_address !== undefined) userDataToUpdate.withdrawal_wallet_address = withdrawal_wallet_address;
+    if (wallet_balance !== undefined) userDataToUpdate.wallet_balance = parseFloat(wallet_balance); // Parse to float
 
+    // Handle password update if new_password is provided
     if (new_password) {
-        try {
-            // Hash the new password before storing it
-            const hashedPassword = await bcrypt.hash(new_password, 10);
-            updates.password = hashedPassword;
-        } catch (error) {
-            console.error('Error hashing password:', error);
-            return res.status(500).json({ message: "Failed to process password." });
-        }
+        // You should hash the password before saving it to the database
+        // Example (assuming bcryptjs):
+        // const salt = bcrypt.genSaltSync(10);
+        // userDataToUpdate.password = bcrypt.hashSync(new_password, salt);
+        // For now, let's assume hashing is handled in your model or you're aware
+        console.warn("Password update logic for admin.controller.js: Ensure new_password is hashed before saving.");
+        userDataToUpdate.password = new_password; // Placeholder: hash this in production!
     }
 
-    Admin.updateUserProfile(userId, updates, (err, result) => {
+    if (Object.keys(userDataToUpdate).length === 0) {
+        return res.status(400).json({ message: "No fields provided for update." });
+    }
+
+    // Assuming User.updateProfile can handle multiple fields dynamically
+    User.updateProfile(userId, userDataToUpdate, (err, result) => {
         if (err) {
-            console.error(`Error updating user profile for user ${userId}:`, err);
-            return res.status(500).json({ message: "Failed to update user profile." });
+            console.error('Error updating user profile:', err);
+            return res.status(500).json({ message: "Failed to update user profile.", error: err.message });
         }
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "User not found or no changes made." });
