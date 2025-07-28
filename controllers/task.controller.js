@@ -18,6 +18,8 @@ exports.getTask = (req, res) => {
         if (!user) {
             return res.status(404).json({ message: "User not found." });
         }
+
+        // --- START: ADDED MINIMUM BALANCE CHECK ---
         const walletBalance = parseFloat(user.wallet_balance || 0);
         const minimumBalanceRequired = 2.00;
 
@@ -29,6 +31,7 @@ exports.getTask = (req, res) => {
                 errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS' // Added for frontend to identify the error type easily
             });
         }
+        // --- END: ADDED MINIMUM BALANCE CHECK ---
 
         console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
 
@@ -38,19 +41,15 @@ exports.getTask = (req, res) => {
 
         console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}, Current Uncompleted: ${currentUncompletedTasks}`);
 
-        // MODIFIED LOGIC: Block user only if uncompleted_orders is 0.
-        // This means they have finished their current daily allocation.
         if (currentUncompletedTasks <= 0) {
             console.log(`[Task Controller - getTask] User ${userId} has completed all their currently assigned daily tasks (uncompleted_orders is 0).`);
-            // The message should reflect that they've completed their *assigned* daily tasks,
-            // not necessarily all tasks they *could* ever do.
             return res.status(200).json({ message: "You have completed all your daily tasks.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
         }
 
         let isLuckyOrder = false;
         let luckyOrderCapitalRequired = 0;
         let luckyOrderProfit = 0;
-        const nextTaskNumber = currentCompletedTasks + 1; // This still tracks cumulative tasks for lucky orders
+        const nextTaskNumber = currentCompletedTasks + 1;
 
         InjectionPlan.findByUserId(userId, (planErr, injectionPlans) => {
             if (planErr) {
@@ -86,7 +85,6 @@ exports.getTask = (req, res) => {
                     description: task.description,
                     price: parseFloat(task.price) || 0,
                     capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
-                    // Access user.default_task_profit (from DB)
                     profit: isLuckyOrder ? luckyOrderProfit : (parseFloat(user.default_task_profit) || parseFloat(task.profit) || 0)
                 };
 
@@ -118,12 +116,10 @@ exports.submitTaskRating = (req, res) => {
         if (err) return res.status(500).json({ message: "Error fetching user details." });
         if (!user) return res.status(404).json({ message: "User not found." });
 
-        // Ensure these are parsed as numbers, falling back to 0 if null/undefined
         let currentCompleted = parseInt(user.completed_orders || 0, 10);
         let currentUncompleted = parseInt(user.uncompleted_orders || 0, 10);
         const isCompletedRating = (rating === 5);
 
-        // Do not proceed if the user has no uncompleted tasks left to complete
         if (isCompletedRating && currentUncompleted <= 0) {
             return res.status(400).json({ message: "You have already completed all your daily tasks." });
         }
@@ -139,11 +135,9 @@ exports.submitTaskRating = (req, res) => {
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
                     
-                    // Update counts for the current task completion
                     currentCompleted++;
                     currentUncompleted--;
 
-                    // --- DEBUG LOG: Verify values before updateBalanceAndTaskCount ---
                     console.log(`[Task Controller - submitTaskRating] User ${userId} - Before updateBalanceAndTaskCount:`);
                     console.log(`  completed_orders: ${currentCompleted}`);
                     console.log(`  uncompleted_orders: ${currentUncompleted}`);
@@ -151,7 +145,6 @@ exports.submitTaskRating = (req, res) => {
 
 
                     if (luckyPlan) {
-                        // It's a lucky order
                         const capitalRequired = parseFloat(luckyPlan.injections_amount);
                         const profitAmount = parseFloat(luckyPlan.commission_rate);
                         
@@ -159,7 +152,6 @@ exports.submitTaskRating = (req, res) => {
                             return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
                         }
                         
-                        // Mark plan as used immediately
                         InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
                             if (markErr) console.error("Failed to mark lucky plan as used:", markErr);
                         });
@@ -172,15 +164,14 @@ exports.submitTaskRating = (req, res) => {
                              res.status(200).json({ message, isCompleted: true });
 
                              setTimeout(() => {
-                                 User.updateBalanceAndTaskCount(userId, returnAmount, 'add', null, null, (addErr) => { // Passing null for counts, as only balance is affected here
+                                 User.updateBalanceAndTaskCount(userId, returnAmount, 'add', null, null, (addErr) => {
                                      if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                      else console.log(`Lucky order profit and capital credited to user ${userId}.`);
                                  });
-                             }, 5000); // 5-second delay
+                             }, 5000);
                         });
 
                     } else {
-                        // It's a standard order
                         let profitToAdd = 0;
                         if (user.default_task_profit) { 
                             profitToAdd = parseFloat(user.default_task_profit);
@@ -200,7 +191,6 @@ exports.submitTaskRating = (req, res) => {
                 });
 
             } else {
-                // Rating is not 5 stars
                 res.status(200).json({ message, isCompleted: false });
             }
         });
