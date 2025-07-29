@@ -40,20 +40,21 @@ const User = {
         });
     },
 
-    // MODIFIED: This function now correctly handles order count updates
+    // REMOVED: updateDailyAndUncompletedOrders - its logic is now merged into updateBalanceAndTaskCount
+
+    // MODIFIED: This function now directly handles order count updates
     updateBalanceAndTaskCount: (userId, amount, type, callback) => {
         let sql;
         let params;
 
         if (type === 'add') { // This means a task has just been successfully completed (profit added)
-            // REMOVED: daily_orders decrement from here.
-            // daily_orders should only be set/updated by admin actions.
             sql = `
                 UPDATE users
                 SET
                     wallet_balance = wallet_balance + ?,
                     completed_orders = completed_orders + 1,
                     uncompleted_orders = CASE WHEN uncompleted_orders > 0 THEN uncompleted_orders - 1 ELSE 0 END,
+                    daily_orders = CASE WHEN daily_orders > 0 THEN daily_orders - 1 ELSE 0 END,
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
