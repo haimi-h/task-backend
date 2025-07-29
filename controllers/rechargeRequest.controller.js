@@ -110,52 +110,86 @@ exports.approveRechargeRequest = (req, res) => {
       return res.status(404).json({ message: "Recharge request not found." });
     }
 
+    // Ensure the request is pending before processing
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Recharge request is not pending.' });
+    }
+
     db.beginTransaction(transErr => {
       if (transErr) {
         console.error("Error starting transaction:", transErr);
         return res.status(500).json({ message: "Database transaction error." });
       }
 
-      RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
-        if (updateErr) {
-          return db.rollback(() => {
-            console.error(`Error updating status for ${requestId}:`, updateErr);
-            res.status(500).json({ message: "Failed to approve recharge request status." });
-          });
-        }
+      // Determine the amount and currency to credit
+      let amountToCredit = parseFloat(request.amount);
+      const requestCurrency = request.currency; // This will be 'USD' from RechargePage.js
 
-        User.updateWalletBalance(request.user_id, request.amount, 'add', (userUpdateErr) => {
-          if (userUpdateErr) {
-            return db.rollback(() => {
-              console.error(`Error updating user wallet:`, userUpdateErr);
-              res.status(500).json({ message: "Recharge approved, but failed to update wallet." });
-            });
+      // --- CRITICAL CHANGE HERE: Convert USD to TRX if the request currency is USD ---
+      const processApproval = async () => {
+        try {
+          if (requestCurrency === 'USD') {
+            const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=usd');
+            const trxPrice = priceResponse.data.tron.usd;
+
+            if (!trxPrice) {
+              throw new Error('Could not fetch current TRX price for USD to TRX conversion.');
+            }
+            amountToCredit = amountToCredit / trxPrice; // Convert USD to TRX
+            console.log(`Converted ${request.amount} USD to ${amountToCredit.toFixed(6)} TRX for user ${request.user_id}`);
           }
 
-          db.commit(commitErr => {
-            if (commitErr) {
+          // Update the recharge request status to 'approved'
+          RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
+            if (updateErr) {
               return db.rollback(() => {
-                console.error("Commit error:", commitErr);
-                res.status(500).json({ message: "Failed to commit recharge approval." });
+                console.error(`Error updating status for ${requestId}:`, updateErr);
+                res.status(500).json({ message: "Failed to approve recharge request status." });
               });
             }
 
-            const io = getIo();
-            if (io) {
-              io.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                requestId: request.id,
-                amount: request.amount,
-                currency: request.currency,
-                admin_notes
-              });
-            } else {
-              console.warn('Socket.IO not available for rechargeApproved.');
-            }
+            // Update user's wallet balance with the (potentially converted) amount
+            User.updateWalletBalance(request.user_id, amountToCredit, 'add', (userUpdateErr) => {
+              if (userUpdateErr) {
+                return db.rollback(() => {
+                  console.error(`Error updating user wallet:`, userUpdateErr);
+                  res.status(500).json({ message: "Recharge approved, but failed to update wallet." });
+                });
+              }
 
-            res.status(200).json({ message: "Recharge request approved and wallet credited." });
+              db.commit(commitErr => {
+                if (commitErr) {
+                  return db.rollback(() => {
+                    console.error("Commit error:", commitErr);
+                    res.status(500).json({ message: "Failed to commit recharge approval." });
+                  });
+                }
+
+                const io = getIo();
+                if (io) {
+                  io.to(`user-${request.user_id}`).emit('rechargeApproved', {
+                    requestId: request.id,
+                    amount: amountToCredit, // Emit the TRX amount
+                    currency: 'TRX', // Emit the currency as TRX
+                    admin_notes
+                  });
+                } else {
+                  console.warn('Socket.IO not available for rechargeApproved.');
+                }
+
+                res.status(200).json({ message: "Recharge request approved and wallet credited." });
+              });
+            });
           });
-        });
-      });
+        } catch (conversionError) {
+          db.rollback(() => {
+            console.error('Error during currency conversion or approval:', conversionError);
+            res.status(500).json({ message: conversionError.message || 'Failed to process recharge approval due to currency conversion error.' });
+          });
+        }
+      };
+
+      processApproval(); // Call the async function
     });
   });
 };
