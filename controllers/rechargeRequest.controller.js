@@ -3,7 +3,7 @@ const db = require('../models/db');
 const { getIo } = require('../utils/socket');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model');
-const axios = require('axios'); // Import axios for API calls (e.g., CoinGecko)
+// const axios = require('axios'); // Removed, as we no longer need to fetch crypto prices for conversion
 
 // Submit a new recharge request
 exports.submitRechargeRequest = (req, res) => {
@@ -126,19 +126,12 @@ exports.approveRechargeRequest = (req, res) => {
       let amountToCredit = parseFloat(request.amount);
       const requestCurrency = request.currency; // This will be 'USD' from RechargePage.js
 
-      // --- CRITICAL CHANGE HERE: Convert USD to TRX if the request currency is USD ---
-      const processApproval = async () => {
+      // --- MODIFIED: Removed USD to TRX conversion logic ---
+      // The amount will now be credited directly as USD to the wallet_balance.
+      const processApproval = async () => { // Kept async for consistency, though no longer strictly needed for price fetch
         try {
-          if (requestCurrency === 'USD') {
-            const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=usd');
-            const trxPrice = priceResponse.data.tron.usd;
-
-            if (!trxPrice) {
-              throw new Error('Could not fetch current TRX price for USD to TRX conversion.');
-            }
-            amountToCredit = amountToCredit / trxPrice; // Convert USD to TRX
-            console.log(`Converted ${request.amount} USD to ${amountToCredit.toFixed(6)} TRX for user ${request.user_id}`);
-          }
+          // Removed: if (requestCurrency === 'USD') { ... conversion logic ... }
+          // The amountToCredit is already in USD as sent from the frontend.
 
           // Update the recharge request status to 'approved'
           RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
@@ -149,7 +142,7 @@ exports.approveRechargeRequest = (req, res) => {
               });
             }
 
-            // Update user's wallet balance with the (potentially converted) amount
+            // Update user's wallet balance with the USD amount
             User.updateWalletBalance(request.user_id, amountToCredit, 'add', (userUpdateErr) => {
               if (userUpdateErr) {
                 return db.rollback(() => {
@@ -170,8 +163,8 @@ exports.approveRechargeRequest = (req, res) => {
                 if (io) {
                   io.to(`user-${request.user_id}`).emit('rechargeApproved', {
                     requestId: request.id,
-                    amount: amountToCredit, // Emit the TRX amount
-                    currency: 'TRX', // Emit the currency as TRX
+                    amount: amountToCredit, // Emit the USD amount
+                    currency: 'USD', // Emit the currency as USD
                     admin_notes
                   });
                 } else {
@@ -182,10 +175,10 @@ exports.approveRechargeRequest = (req, res) => {
               });
             });
           });
-        } catch (conversionError) {
+        } catch (error) { // Catch any remaining errors in the approval process
           db.rollback(() => {
-            console.error('Error during currency conversion or approval:', conversionError);
-            res.status(500).json({ message: conversionError.message || 'Failed to process recharge approval due to currency conversion error.' });
+            console.error('Error during recharge approval:', error);
+            res.status(500).json({ message: error.message || 'Failed to process recharge approval.' });
           });
         }
       };
