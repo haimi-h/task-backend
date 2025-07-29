@@ -116,7 +116,52 @@ exports.updateUserProfile = async (req, res) => {
         res.status(500).json({ message: error.message || 'Failed to update user profile.' });
     }
 };
+// NEW function for a user to update their own profile (e.g., password)
+exports.updateOwnProfile = async (req, res) => {
+    // Get user ID from the authenticated token, not params
+    const userId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
 
+    // Check if this is a password change request
+    if (newPassword && currentPassword) {
+        try {
+            // Fetch the user's current data from the database
+            const user = await new Promise((resolve, reject) => {
+                User.findById(userId, (err, result) => {
+                    if (err) return reject(err);
+                    if (!result) return reject(new Error('User not found.'));
+                    resolve(result);
+                });
+            });
+
+            // Verify the current password
+            const isPasswordMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isPasswordMatch) {
+                return res.status(401).json({ message: 'Incorrect current password.' });
+            }
+
+            // Hash the new password
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            
+            // Update the user's profile with the new hashed password
+            await new Promise((resolve, reject) => {
+                User.updateProfile(userId, { password: hashedPassword }, (err, result) => {
+                    if (err) return reject(err);
+                    resolve(result);
+                });
+            });
+
+            return res.status(200).json({ message: 'Password updated successfully.' });
+
+        } catch (error) {
+            console.error('Error updating password:', error);
+            return res.status(500).json({ message: 'Failed to update password.' });
+        }
+    }
+
+    // You can extend this function to handle other profile updates (e.g., username)
+    return res.status(400).json({ message: 'No valid update data provided.' });
+};
 exports.getLoggedInUser = (req, res) => {
     const userId = req.user.id;
 

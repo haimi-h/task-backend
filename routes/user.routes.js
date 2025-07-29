@@ -21,6 +21,9 @@ router.post('/set-withdrawal-address', authenticateToken, userController.setWith
 // NEW: Route to initiate a cryptocurrency withdrawal
 router.post('/withdraw', authenticateToken, withdrawalController.initiateWithdrawal);
 
+// NEW: Route for a user to update their own profile (e.g., change password)
+router.put('/profile', authenticateToken, userController.updateOwnProfile);
+
 // NEW: Route to get a user's withdrawal history
 router.get('/withdrawals/history', authenticateToken, withdrawalController.getWithdrawalHistory);
 
