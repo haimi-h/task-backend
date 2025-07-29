@@ -1,3 +1,4 @@
+// your-project/models/task.model.js
 const db = require('./db');
 
 const Task = {
@@ -28,8 +29,8 @@ const Task = {
             const sqlFindNonCompleted = `
                 SELECT p.*, upr.rating AS user_rating, upr.is_completed
                 FROM products p
-                JOIN user_product_ratings upr ON p.id = upr.product_id AND upr.user_id = ?
-                WHERE upr.is_completed = FALSE
+                JOIN user_product_ratings upr ON p.id = upr.product_id
+                WHERE upr.user_id = ? AND upr.is_completed = 0 AND upr.rating < 5
                 LIMIT 1;
             `;
             db.query(sqlFindNonCompleted, [userId], (err, results) => {
@@ -42,70 +43,81 @@ const Task = {
                     return callback(null, results[0]);
                 }
 
-                // If no unrated or non-completed products, return null
+                // If all products are either unrated or completed by user, return null for task
                 console.log(`[Task Model - getTaskForUser] No unrated or non-completed products found for User ${userId}.`);
                 callback(null, null);
             });
         });
     },
 
-    // Records or updates a user's rating for a product
-    recordProductRating: (userId, productId, rating, callback) => {
-        const isCompleted = (rating === 5); // Task is completed if rating is 5 stars
-        console.log(`[Task Model - recordProductRating] Recording rating for User ${userId}, Product ${productId}. Rating: ${rating}, Is Completed: ${isCompleted}`);
+    /**
+     * NEW METHOD: Submits or updates a product rating for a user.
+     * Marks the task as completed if the rating is 5 stars.
+     * @param {number} userId - The ID of the user submitting the rating.
+     * @param {number} productId - The ID of the product being rated.
+     * @param {number} rating - The star rating (1-5).
+     * @param {function} callback - Callback function (err, message, isCompleted)
+     */
+    submitRating: (userId, productId, rating, callback) => {
+        const isCompleted = rating === 5 ? 1 : 0; // 1 for true, 0 for false in database
 
         // Check if a rating already exists for this user and product
-        db.query(
-            `SELECT id FROM user_product_ratings WHERE user_id = ? AND product_id = ?`,
-            [userId, productId],
-            (err, results) => {
-                if (err) {
-                    console.error(`[Task Model - recordProductRating] Error checking existing rating for User ${userId}, Product ${productId}:`, err);
-                    return callback(err, null);
-                }
-
-                if (results.length > 0) {
-                    // Update existing rating
-                    const sql = `
-                        UPDATE user_product_ratings
-                        SET rating = ?, is_completed = ?, rated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?;
-                    `;
-                    console.log(`[Task Model - recordProductRating] Updating existing rating ID ${results[0].id} for User ${userId}.`);
-                    db.query(sql, [rating, isCompleted, results[0].id], callback);
-                } else {
-                    // Insert new rating
-                    const sql = `
-                        INSERT INTO user_product_ratings (user_id, product_id, rating, is_completed)
-                        VALUES (?, ?, ?, ?);
-                    `;
-                    console.log(`[Task Model - recordProductRating] Inserting new rating for User ${userId}, Product ${productId}.`);
-                    db.query(sql, [userId, productId, rating, isCompleted], callback);
-                }
+        const sqlCheckExisting = `SELECT id FROM user_product_ratings WHERE user_id = ? AND product_id = ?;`;
+        db.query(sqlCheckExisting, [userId, productId], (err, results) => {
+            if (err) {
+                console.error(`[Task Model - submitRating] Error checking existing rating for User ${userId}, Product ${productId}:`, err);
+                return callback(err, "Database error checking existing rating.", false);
             }
-        );
+
+            if (results.length > 0) {
+                // If rating exists, update it
+                const ratingId = results[0].id;
+                const sqlUpdate = `UPDATE user_product_ratings SET rating = ?, is_completed = ?, updated_at = NOW() WHERE id = ?;`;
+                db.query(sqlUpdate, [rating, isCompleted, ratingId], (updateErr, updateResult) => {
+                    if (updateErr) {
+                        console.error(`[Task Model - submitRating] Error updating rating for User ${userId}, Product ${productId}:`, updateErr);
+                        return callback(updateErr, "Failed to update rating.", false);
+                    }
+                    console.log(`[Task Model - submitRating] Updated rating for User ${userId}, Product ${productId} to ${rating} stars. Completed: ${isCompleted}`);
+                    callback(null, "Rating updated successfully!", isCompleted === 1);
+                });
+            } else {
+                // If no rating exists, insert a new one
+                const sqlInsert = `INSERT INTO user_product_ratings (user_id, product_id, rating, is_completed) VALUES (?, ?, ?, ?);`;
+                db.query(sqlInsert, [userId, productId, rating, isCompleted], (insertErr, insertResult) => {
+                    if (insertErr) {
+                        console.error(`[Task Model - submitRating] Error inserting rating for User ${userId}, Product ${productId}:`, insertErr);
+                        return callback(insertErr, "Failed to submit rating.", false);
+                    }
+                    console.log(`[Task Model - submitRating] Inserted new rating for User ${userId}, Product ${productId} with ${rating} stars. Completed: ${isCompleted}`);
+                    callback(null, "Rating submitted successfully!", isCompleted === 1);
+                });
+            }
+        });
     },
 
     /**
-     * Gets the counts for the dashboard: Uncompleted, Completed, Daily.
-     * Reads completed_orders, uncompleted_orders, and daily_orders directly from the users table.
-     *
+     * Fetches the number of completed, uncompleted, and daily tasks for a user.
+     * This data is used for the dashboard summary.
      * @param {number} userId - The ID of the user.
      * @param {function} callback - Callback function (err, counts)
      */
     getDashboardCountsForUser: (userId, callback) => {
         const sql = `
             SELECT
-                completed_orders,
-                uncompleted_orders,
-                daily_orders
+                COUNT(CASE WHEN upr.is_completed = 1 THEN 1 END) AS completed_orders,
+                COUNT(CASE WHEN upr.is_completed = 0 AND upr.rating < 5 THEN 1 END) AS uncompleted_orders,
+                COUNT(CASE WHEN upr.is_completed = 1 AND DATE(upr.updated_at) = CURDATE() THEN 1 END) AS daily_orders
             FROM
-                users
-            WHERE id = ?;
+                users u
+            LEFT JOIN
+                user_product_ratings upr ON u.id = upr.user_id
+            WHERE
+                u.id = ?;
         `;
         db.query(sql, [userId], (err, results) => {
             if (err) {
-                console.error(`[Task Model - getDashboardCountsForUser] Error fetching counts for User ${userId}:`, err);
+                console.error(`[Task Model - getDashboardCountsForUser] Error fetching dashboard counts for User ${userId}:`, err);
                 return callback(err, null);
             }
             console.log(`[Task Model - getDashboardCountsForUser] Dashboard counts for User ${userId}:`, results[0]);
@@ -141,7 +153,7 @@ const Task = {
             // Return the profit, or null if product not found
             callback(null, results.length > 0 ? results[0].profit : null);
         });
-    }
+    },
 };
 
 module.exports = Task;
