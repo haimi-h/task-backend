@@ -28,6 +28,7 @@ const User = {
     },
 
     findById: (id, callback) => {
+        // const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
         const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
@@ -40,12 +41,18 @@ const User = {
         });
     },
 
-    // REMOVED: updateDailyAndUncompletedOrders - its logic is now merged into updateBalanceAndTaskCount
+    updateDailyAndUncompletedOrders: (userId, completedCount, uncompletedCount, callback) => {
+        const sql = `
+            UPDATE users
+            SET completed_orders = ?,
+                uncompleted_orders = ?
+            WHERE id = ?;
+        `;
+        db.query(sql, [completedCount, uncompletedCount, userId], callback);
+    },
 
-    // MODIFIED: This function now directly handles order count updates
     updateBalanceAndTaskCount: (userId, amount, type, callback) => {
         let sql;
-        let params;
 
         if (type === 'add') { // This means a task has just been successfully completed (profit added)
             sql = `
@@ -58,8 +65,8 @@ const User = {
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
-            params = [amount, userId];
-        } else if (type === 'deduct') { // This is for lucky order capital deduction (no order count change here)
+            db.query(sql, [amount, userId], callback);
+        } else if (type === 'deduct') { // This is likely for lucky order capital deduction (no order count change here)
              sql = `
                 UPDATE users
                 SET
@@ -67,14 +74,11 @@ const User = {
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
-            params = [amount, userId];
+            db.query(sql, [amount, userId], callback);
         } else {
             return callback(new Error('Invalid update type for balance.'), null);
         }
-
-        db.query(sql, params, callback);
     },
-
     /**
      * NEW METHOD: A simpler function to update only the wallet balance.
      * Used for recharge approvals and other direct balance adjustments.
