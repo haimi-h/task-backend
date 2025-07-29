@@ -3,16 +3,15 @@ const db = require('../models/db');
 const { getIo } = require('../utils/socket');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model');
+const axios = require('axios'); // Import axios for API calls (e.g., CoinGecko)
 
 // Submit a new recharge request
 exports.submitRechargeRequest = (req, res) => {
-  const { amount } = req.body;
+  const { amount, currency } = req.body; // Ensure currency is received
   const userId = req.user.id;
 
-  const query = 'INSERT INTO recharge_requests (user_id, amount, status) VALUES (?, ?, ?)';
-  const values = [userId, amount, 'pending'];
-
-  db.query(query, values, (err, result) => {
+  // The create function in rechargeRequest.model.js already takes currency
+  RechargeRequest.create(userId, amount, currency, null, null, (err, result) => {
     if (err) {
       console.error('Error submitting recharge request:', err);
       return res.status(500).json({ error: 'Database error' });
@@ -35,6 +34,7 @@ exports.submitRechargeRequest = (req, res) => {
           username: user.username,
           phone: user.phone,
           amount,
+          currency, // Include currency in the socket emit
           status: 'pending',
           createdAt: new Date(),
         });
@@ -79,6 +79,7 @@ exports.getPendingRechargeRequests = (req, res) => {
     res.status(200).json(results);
   });
 };
+
 exports.getRechargeHistoryForUser = (req, res) => {
   const { userId } = req.params;
 
