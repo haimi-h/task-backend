@@ -5,6 +5,7 @@ const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
 const { io } = require('../server');
 
+// No changes needed for getTask function
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -102,6 +103,8 @@ exports.getTask = (req, res) => {
     });
 };
 
+
+// MODIFIED submitTaskRating function
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -135,12 +138,7 @@ exports.submitTaskRating = (req, res) => {
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
-                    console.log(`[Task Controller - submitTaskRating] User ${userId} - Before updateBalanceAndTaskCount:`);
-                    console.log(`  completed_orders: ${currentCompleted}`);
-                    console.log(`  uncompleted_orders: ${currentUncompleted}`);
-                    console.log(`  isLuckyOrder: ${!!luckyPlan}`);
-
-
+                    // This block for LUCKY orders remains UNCHANGED.
                     if (luckyPlan) {
                         const capitalRequired = parseFloat(luckyPlan.injections_amount);
                         const profitAmount = parseFloat(luckyPlan.commission_rate);
@@ -155,7 +153,7 @@ exports.submitTaskRating = (req, res) => {
 
                         User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
                             if (deductErr) {
-                                console.error(`[Task Controller - submitTaskRating] Lucky order deduction error for user ${userId}:`, deductErr); // ADDED LOG
+                                console.error(`[Task Controller - submitTaskRating] Lucky order deduction error for user ${userId}:`, deductErr);
                                 return res.status(500).json({ message: "Failed to process lucky order deduction." });
                             }
 
@@ -166,7 +164,7 @@ exports.submitTaskRating = (req, res) => {
                             setTimeout(() => {
                                 User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                     if (addErr) {
-                                        console.error(`Error adding profit for lucky order user ${userId}:`, addErr); // ADDED LOG
+                                        console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                     } else {
                                         console.log(`Lucky order profit and capital credited to user ${userId}.`);
                                     }
@@ -175,22 +173,29 @@ exports.submitTaskRating = (req, res) => {
                         });
 
                     } else {
-                        Task.getProductProfit(productId, (profitErr, productProfit) => {
-                            let profitToAdd = 0;
-                            if (!profitErr && productProfit) {
-                                profitToAdd = parseFloat(productProfit);
-                            } else {
-                                console.warn(`[Task Controller - submitTaskRating] No product profit found for product ${productId}. Defaulting to 0.`);
-                            }
+                        // START: NEW LOGIC FOR ORDINARY TASKS
+                        // This block executes when it's NOT a lucky order.
 
-                            User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
-                                if (updateErr) {
-                                    console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr); // ADDED LOG
-                                    return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                                }
-                                res.status(200).json({ message: "Task completed successfully!", isCompleted: true });
-                            });
+                        // 1. Define the profit percentage. You can change this value. 5% = 0.05
+                        const PROFIT_PERCENTAGE = 0.05;
+
+                        // 2. Get the user's current balance from the 'user' object we already fetched.
+                        const currentUserBalance = parseFloat(user.wallet_balance);
+
+                        // 3. Calculate the profit to add.
+                        const profitToAdd = currentUserBalance * PROFIT_PERCENTAGE;
+
+                        console.log(`[Task Controller - submitTaskRating] Ordinary Task. User Balance: $${currentUserBalance}. Profit Percentage: ${PROFIT_PERCENTAGE * 100}%. Profit to Add: $${profitToAdd.toFixed(2)}`);
+
+                        // 4. Update the user's balance and task counts with the calculated profit.
+                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
+                            if (updateErr) {
+                                console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr);
+                                return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                            }
+                            res.status(200).json({ message: `Task completed successfully! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                         });
+                        // END: NEW LOGIC
                     }
                 });
 
@@ -201,6 +206,8 @@ exports.submitTaskRating = (req, res) => {
     });
 };
 
+
+// No changes needed for getDashboardSummary function
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
 
