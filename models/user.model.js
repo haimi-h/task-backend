@@ -36,16 +36,15 @@ const User = {
     },
 
     findById: (id, callback) => {
-        const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
-        db.query(sql, [id], (err, results) => {
-            if (err) {
-                console.error(`[User Model - findById] Database error for User ${id}:`, err);
-                return callback(err);
+        // ADD 'password' to the SELECT statement
+        const sql = "SELECT id, username, phone, password, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?"; //
+        db.query(sql, [id], (err, results) => { //
+            if (err) { //
+                console.error(`[User Model - findById] Database error for User ${id}:`, err); //
+                return callback(err); //
             }
-            const user = results[0] || null;
-            // This console.log can be noisy, you might want to remove it in production
-            // console.log(`[User Model - findById] Fetched user data for ID ${id}:`, user);
-            callback(null, user);
+            const user = results[0] || null; //
+            callback(null, user); //
         });
     },
 
