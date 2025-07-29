@@ -1,5 +1,6 @@
 // your-project/models/user.model.js
 const db = require('./db'); // Ensure this path is correct
+const bcrypt = require('bcryptjs'); // For password comparison if needed elsewhere, good to keep it consistent
 
 const User = {
     create: (userData, callback) => {
@@ -23,10 +24,6 @@ const User = {
         db.query(`SELECT * FROM users WHERE phone = ?`, [phone], callback);
     },
 
-    /**
-     * NEW: Finds a user by their username.
-     * This is required for the admin login functionality.
-     */
     findByUsername: (username, callback) => {
         db.query(`SELECT * FROM users WHERE username = ?`, [username], callback);
     },
@@ -36,109 +33,89 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // ADD 'password' to the SELECT statement
-        const sql = "SELECT id, username, phone, password, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?"; //
-        db.query(sql, [id], (err, results) => { //
-            if (err) { //
-                console.error(`[User Model - findById] Database error for User ${id}:`, err); //
-                return callback(err); //
-            }
-            const user = results[0] || null; //
-            callback(null, user); //
-        });
+        db.query(`SELECT * FROM users WHERE id = ?`, [id], callback);
     },
 
-    updateDailyAndUncompletedOrders: (userId, completedCount, uncompletedCount, callback) => {
-        const sql = `
-            UPDATE users
-            SET completed_orders = ?,
-                uncompleted_orders = ?
-            WHERE id = ?;
-        `;
-        db.query(sql, [completedCount, uncompletedCount, userId], callback);
+    /**
+     * Updates user's wallet balance.
+     * @param {number} userId - The ID of the user.
+     * @param {number} newBalance - The new balance to set for the user.
+     * @param {function} callback - Callback function (err, result)
+     */
+    updateWalletBalance: (userId, newBalance, callback) => {
+        const sql = `UPDATE users SET wallet_balance = ? WHERE id = ?`;
+        db.query(sql, [newBalance, userId], callback);
     },
 
-    updateBalanceAndTaskCount: (userId, amount, type, callback) => {
-        let sql;
-
-        if (type === 'add') { // A task has been successfully completed
-            sql = `
-                UPDATE users
-                SET
-                    wallet_balance = wallet_balance + ?,
-                    completed_orders = completed_orders + 1,
-                    uncompleted_orders = CASE WHEN uncompleted_orders > 0 THEN uncompleted_orders - 1 ELSE 0 END,
-                    daily_orders = CASE WHEN daily_orders > 0 THEN daily_orders - 1 ELSE 0 END,
-                    last_activity_at = NOW()
-                WHERE id = ?;
-            `;
-            db.query(sql, [amount, userId], callback);
-        } else if (type === 'deduct') { // For lucky order capital deduction
-             sql = `
-                UPDATE users
-                SET
-                    wallet_balance = wallet_balance - ?,
-                    last_activity_at = NOW()
-                WHERE id = ?;
-            `;
-            db.query(sql, [amount, userId], callback);
-        } else {
-            return callback(new Error('Invalid update type for balance.'), null);
+    /**
+     * Updates user's wallet balance and increments/decrements task counts.
+     * This method handles both balance updates and task count increments/decrements in one go.
+     * It uses a transaction to ensure atomicity.
+     *
+     * @param {number} userId - The ID of the user.
+     * @param {number} newBalance - The new balance to set for the user.
+     * @param {boolean} incrementCompleted - True to increment completed_orders.
+     * @param {boolean} incrementDaily - True to increment daily_orders.
+     * @param {boolean} decrementUncompleted - True to decrement uncompleted_orders.
+     * @param {function} callback - Callback function (err, result)
+     */
+    updateBalanceAndTaskCount: (userId, newBalance, incrementCompleted, incrementDaily, decrementUncompleted, callback) => {
+        // Defensive check for callback
+        if (typeof callback !== 'function') {
+            console.error("[User Model - updateBalanceAndTaskCount] Callback is not a function.");
+            // In a real app, you might throw an error or handle this more gracefully if no callback is critical.
+            // For now, we'll just return to prevent a TypeError.
+            return;
         }
-    },
-    
-    updateWalletBalance: (userId, amount, type, callback) => {
-        let sql;
-        if (type === 'add') {
-            sql = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`;
-        } else if (type === 'deduct') {
-            sql = `UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?`;
-        } else {
-            return callback(new Error('Invalid update type for wallet balance. Must be "add" or "deduct".'));
-        }
-        db.query(sql, [amount, userId], callback);
-    },
 
-    deductBalance: (userId, amount, callback) => {
         db.getConnection((err, connection) => {
-            if (err) return callback(err);
+            if (err) {
+                console.error("[User Model - updateBalanceAndTaskCount] Error getting database connection:", err);
+                return callback(err);
+            }
 
             connection.beginTransaction(err => {
                 if (err) {
                     connection.release();
+                    console.error("[User Model - updateBalanceAndTaskCount] Error beginning transaction:", err);
                     return callback(err);
                 }
 
-                connection.query('SELECT wallet_balance FROM users WHERE id = ? FOR UPDATE', [userId], (err, results) => {
+                // First, update the balance
+                const updateBalanceSql = `UPDATE users SET wallet_balance = ? WHERE id = ?`;
+                connection.query(updateBalanceSql, [newBalance, userId], (err, balanceUpdateResult) => {
                     if (err) {
                         return connection.rollback(() => {
                             connection.release();
+                            console.error("[User Model - updateBalanceAndTaskCount] Error updating balance:", err);
                             callback(err);
                         });
                     }
 
-                    if (results.length === 0) {
-                        return connection.rollback(() => {
-                            connection.release();
-                            callback(new Error('User not found.'));
-                        });
+                    // Then, update task counts based on flags
+                    let updateTaskCountsSql = `UPDATE users SET`;
+                    const updateTaskCountsValues = [];
+                    const updates = [];
+
+                    if (incrementCompleted) {
+                        updates.push(`completed_orders = completed_orders + 1`);
+                    }
+                    if (incrementDaily) {
+                        updates.push(`daily_orders = daily_orders + 1`);
+                    }
+                    if (decrementUncompleted) {
+                        updates.push(`uncompleted_orders = GREATEST(0, uncompleted_orders - 1)`);
                     }
 
-                    const currentBalance = parseFloat(results[0].wallet_balance);
-                    if (currentBalance < amount) {
-                        return connection.rollback(() => {
-                            connection.release();
-                            callback(new Error('Insufficient balance.'));
-                        });
-                    }
+                    if (updates.length > 0) {
+                        updateTaskCountsSql += ` ${updates.join(', ')} WHERE id = ?`;
+                        updateTaskCountsValues.push(userId);
 
-                    connection.query(
-                        'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
-                        [amount, userId],
-                        (err, updateResult) => {
+                        connection.query(updateTaskCountsSql, updateTaskCountsValues, (err, updateResult) => {
                             if (err) {
                                 return connection.rollback(() => {
                                     connection.release();
+                                    console.error("[User Model - updateBalanceAndTaskCount] Error updating task counts:", err);
                                     callback(err);
                                 });
                             }
@@ -153,8 +130,20 @@ const User = {
                                 connection.release();
                                 callback(null, updateResult);
                             });
-                        }
-                    );
+                        });
+                    } else {
+                        // If no task counts need updating, just commit the balance change
+                        connection.commit(err => {
+                            if (err) {
+                                return connection.rollback(() => {
+                                    connection.release();
+                                    callback(err);
+                                });
+                            }
+                            connection.release();
+                            callback(null, balanceUpdateResult); // Line 86 could be this one if updates.length is 0
+                        });
+                    }
                 });
             });
         });
