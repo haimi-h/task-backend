@@ -3,15 +3,16 @@ const db = require('../models/db');
 const { getIo } = require('../utils/socket');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model');
-// const axios = require('axios'); // Removed, as we no longer need to fetch crypto prices for conversion
 
 // Submit a new recharge request
 exports.submitRechargeRequest = (req, res) => {
-  const { amount, currency } = req.body; // Ensure currency is received
+  const { amount } = req.body;
   const userId = req.user.id;
 
-  // The create function in rechargeRequest.model.js already takes currency
-  RechargeRequest.create(userId, amount, currency, null, null, (err, result) => {
+  const query = 'INSERT INTO recharge_requests (user_id, amount, status) VALUES (?, ?, ?)';
+  const values = [userId, amount, 'pending'];
+
+  db.query(query, values, (err, result) => {
     if (err) {
       console.error('Error submitting recharge request:', err);
       return res.status(500).json({ error: 'Database error' });
@@ -34,7 +35,6 @@ exports.submitRechargeRequest = (req, res) => {
           username: user.username,
           phone: user.phone,
           amount,
-          currency, // Include currency in the socket emit
           status: 'pending',
           createdAt: new Date(),
         });
@@ -79,7 +79,6 @@ exports.getPendingRechargeRequests = (req, res) => {
     res.status(200).json(results);
   });
 };
-
 exports.getRechargeHistoryForUser = (req, res) => {
   const { userId } = req.params;
 
@@ -111,79 +110,52 @@ exports.approveRechargeRequest = (req, res) => {
       return res.status(404).json({ message: "Recharge request not found." });
     }
 
-    // Ensure the request is pending before processing
-    if (request.status !== 'pending') {
-      return res.status(400).json({ message: 'Recharge request is not pending.' });
-    }
-
     db.beginTransaction(transErr => {
       if (transErr) {
         console.error("Error starting transaction:", transErr);
         return res.status(500).json({ message: "Database transaction error." });
       }
 
-      // Determine the amount and currency to credit
-      let amountToCredit = parseFloat(request.amount);
-      const requestCurrency = request.currency; // This will be 'USD' from RechargePage.js
+      RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
+        if (updateErr) {
+          return db.rollback(() => {
+            console.error(`Error updating status for ${requestId}:`, updateErr);
+            res.status(500).json({ message: "Failed to approve recharge request status." });
+          });
+        }
 
-      // --- MODIFIED: Removed USD to TRX conversion logic ---
-      // The amount will now be credited directly as USD to the wallet_balance.
-      const processApproval = async () => { // Kept async for consistency, though no longer strictly needed for price fetch
-        try {
-          // Removed: if (requestCurrency === 'USD') { ... conversion logic ... }
-          // The amountToCredit is already in USD as sent from the frontend.
+        User.updateWalletBalance(request.user_id, request.amount, 'add', (userUpdateErr) => {
+          if (userUpdateErr) {
+            return db.rollback(() => {
+              console.error(`Error updating user wallet:`, userUpdateErr);
+              res.status(500).json({ message: "Recharge approved, but failed to update wallet." });
+            });
+          }
 
-          // Update the recharge request status to 'approved'
-          RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
-            if (updateErr) {
+          db.commit(commitErr => {
+            if (commitErr) {
               return db.rollback(() => {
-                console.error(`Error updating status for ${requestId}:`, updateErr);
-                res.status(500).json({ message: "Failed to approve recharge request status." });
+                console.error("Commit error:", commitErr);
+                res.status(500).json({ message: "Failed to commit recharge approval." });
               });
             }
 
-            // Update user's wallet balance with the USD amount
-            User.updateWalletBalance(request.user_id, amountToCredit, 'add', (userUpdateErr) => {
-              if (userUpdateErr) {
-                return db.rollback(() => {
-                  console.error(`Error updating user wallet:`, userUpdateErr);
-                  res.status(500).json({ message: "Recharge approved, but failed to update wallet." });
-                });
-              }
-
-              db.commit(commitErr => {
-                if (commitErr) {
-                  return db.rollback(() => {
-                    console.error("Commit error:", commitErr);
-                    res.status(500).json({ message: "Failed to commit recharge approval." });
-                  });
-                }
-
-                const io = getIo();
-                if (io) {
-                  io.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                    requestId: request.id,
-                    amount: amountToCredit, // Emit the USD amount
-                    currency: 'USD', // Emit the currency as USD
-                    admin_notes
-                  });
-                } else {
-                  console.warn('Socket.IO not available for rechargeApproved.');
-                }
-
-                res.status(200).json({ message: "Recharge request approved and wallet credited." });
+            const io = getIo();
+            if (io) {
+              io.to(`user-${request.user_id}`).emit('rechargeApproved', {
+                requestId: request.id,
+                amount: request.amount,
+                currency: request.currency,
+                admin_notes
               });
-            });
-          });
-        } catch (error) { // Catch any remaining errors in the approval process
-          db.rollback(() => {
-            console.error('Error during recharge approval:', error);
-            res.status(500).json({ message: error.message || 'Failed to process recharge approval.' });
-          });
-        }
-      };
+            } else {
+              console.warn('Socket.IO not available for rechargeApproved.');
+            }
 
-      processApproval(); // Call the async function
+            res.status(200).json({ message: "Recharge request approved and wallet credited." });
+          });
+        });
+      });
     });
   });
 };
