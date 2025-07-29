@@ -23,12 +23,19 @@ const User = {
         db.query(`SELECT * FROM users WHERE phone = ?`, [phone], callback);
     },
 
+    /**
+     * NEW: Finds a user by their username.
+     * This is required for the admin login functionality.
+     */
+    findByUsername: (username, callback) => {
+        db.query(`SELECT * FROM users WHERE username = ?`, [username], callback);
+    },
+
     findByInvitationCode: (code, callback) => {
         db.query("SELECT id, username, phone, invitation_code FROM users WHERE invitation_code = ?", [code], callback);
     },
 
     findById: (id, callback) => {
-        // const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, default_task_profit, withdrawal_password FROM users WHERE id = ?";
         const sql = "SELECT id, username, phone, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
@@ -36,7 +43,8 @@ const User = {
                 return callback(err);
             }
             const user = results[0] || null;
-            console.log(`[User Model - findById] Fetched user data for ID ${id}:`, user);
+            // This console.log can be noisy, you might want to remove it in production
+            // console.log(`[User Model - findById] Fetched user data for ID ${id}:`, user);
             callback(null, user);
         });
     },
@@ -54,7 +62,7 @@ const User = {
     updateBalanceAndTaskCount: (userId, amount, type, callback) => {
         let sql;
 
-        if (type === 'add') { // This means a task has just been successfully completed (profit added)
+        if (type === 'add') { // A task has been successfully completed
             sql = `
                 UPDATE users
                 SET
@@ -66,7 +74,7 @@ const User = {
                 WHERE id = ?;
             `;
             db.query(sql, [amount, userId], callback);
-        } else if (type === 'deduct') { // This is likely for lucky order capital deduction (no order count change here)
+        } else if (type === 'deduct') { // For lucky order capital deduction
              sql = `
                 UPDATE users
                 SET
@@ -79,14 +87,7 @@ const User = {
             return callback(new Error('Invalid update type for balance.'), null);
         }
     },
-    /**
-     * NEW METHOD: A simpler function to update only the wallet balance.
-     * Used for recharge approvals and other direct balance adjustments.
-     * @param {number} userId - The ID of the user whose wallet to update.
-     * @param {number} amount - The amount to add or deduct.
-     * @param {string} type - 'add' or 'deduct'.
-     * @param {function} callback - Callback function (err, result)
-     */
+    
     updateWalletBalance: (userId, amount, type, callback) => {
         let sql;
         if (type === 'add') {
