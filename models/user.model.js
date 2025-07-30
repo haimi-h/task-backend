@@ -36,15 +36,33 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // ADD 'password' to the SELECT statement
-        const sql = "SELECT id, username, phone, password, invitation_code, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?"; //
-        db.query(sql, [id], (err, results) => { //
-            if (err) { //
-                console.error(`[User Model - findById] Database error for User ${id}:`, err); //
-                return callback(err); //
+        // ADD 'password' and 'referrer_id' to the SELECT statement
+        // Corrected SQL to include referrer_id
+        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
+        db.query(sql, [id], (err, results) => {
+            if (err) {
+                console.error(`[User Model - findById] Database error for User ${id}:`, err);
+                return callback(err);
             }
-            const user = results[0] || null; //
-            callback(null, user); //
+            const user = results[0] || null;
+            callback(null, user);
+        });
+    },
+
+    /**
+     * NEW: Finds all users who were referred by a specific referrer.
+     * This function was missing and caused the TypeError.
+     * @param {number} referrerId - The ID of the user who referred others.
+     * @param {function} callback - Callback function (err, referredUsersArray)
+     */
+    findUsersByReferrerId: (referrerId, callback) => {
+        const sql = `SELECT id, username, phone, wallet_balance FROM users WHERE referrer_id = ?`;
+        db.query(sql, [referrerId], (err, results) => {
+            if (err) {
+                console.error(`[User Model - findUsersByReferrerId] Error fetching referred users for referrer ${referrerId}:`, err);
+                return callback(err, null);
+            }
+            callback(null, results);
         });
     },
 
