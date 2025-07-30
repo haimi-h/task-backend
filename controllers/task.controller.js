@@ -138,10 +138,12 @@ exports.submitTaskRating = (req, res) => {
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
-                    // This block for LUCKY orders remains UNCHANGED.
+                    const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% for the invited customer
+
+                    // This block for LUCKY orders
                     if (luckyPlan) {
                         const capitalRequired = parseFloat(luckyPlan.injections_amount);
-                        const profitAmount = parseFloat(luckyPlan.commission_rate);
+                        const profitAmount = parseFloat(luckyPlan.commission_rate); // This is the profit from the lucky order
 
                         if (parseFloat(user.wallet_balance) < capitalRequired) {
                             return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
@@ -167,22 +169,41 @@ exports.submitTaskRating = (req, res) => {
                                         console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                     } else {
                                         console.log(`Lucky order profit and capital credited to user ${userId}.`);
+                                        // NEW: Referral profit logic for lucky orders
+                                        // This runs AFTER the inviter's profit is credited
+                                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                                            if (findReferralsErr) {
+                                                console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                                            } else if (referredUsers && referredUsers.length > 0) {
+                                                const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
+                                                referredUsers.forEach(referredUser => {
+                                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                                        if (referredUpdateErr) {
+                                                            console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                                        } else {
+                                                            console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
+                                                        }
+                                                    });
+                                                });
+                                            } else {
+                                                console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
+                                            }
+                                        });
                                     }
                                 });
-                            }, 5000);
+                            }, 5000); // Delay to simulate processing and ensure main profit is added first
                         });
 
                     } else {
-                        // START: NEW LOGIC FOR ORDINARY TASKS
-                        // This block executes when it's NOT a lucky order.
+                        // This block executes when it's NOT a lucky order (ordinary task).
 
-                        // 1. Define the profit percentage. You can change this value. 5% = 0.05
+                        // 1. Define the profit percentage for ordinary tasks.
                         const PROFIT_PERCENTAGE = 0.05;
 
                         // 2. Get the user's current balance from the 'user' object we already fetched.
                         const currentUserBalance = parseFloat(user.wallet_balance);
 
-                        // 3. Calculate the profit to add.
+                        // 3. Calculate the profit to add to the current user.
                         const profitToAdd = currentUserBalance * PROFIT_PERCENTAGE;
 
                         console.log(`[Task Controller - submitTaskRating] Ordinary Task. User Balance: $${currentUserBalance}. Profit Percentage: ${PROFIT_PERCENTAGE * 100}%. Profit to Add: $${profitToAdd.toFixed(2)}`);
@@ -193,9 +214,30 @@ exports.submitTaskRating = (req, res) => {
                                 console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr);
                                 return res.status(500).json({ message: "Task completed, but failed to update user data." });
                             }
+
+                            // NEW: Referral profit logic for ordinary tasks
+                            // This runs AFTER the inviter's profit is credited
+                            User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                                if (findReferralsErr) {
+                                    console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                                } else if (referredUsers && referredUsers.length > 0) {
+                                    const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
+                                    referredUsers.forEach(referredUser => {
+                                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                            if (referredUpdateErr) {
+                                                console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                            } else {
+                                                console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
+                                            }
+                                        });
+                                    });
+                                } else {
+                                    console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
+                                }
+                            });
+
                             res.status(200).json({ message: `Task completed successfully! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                         });
-                        // END: NEW LOGIC
                     }
                 });
 
