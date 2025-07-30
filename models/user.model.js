@@ -38,7 +38,7 @@ const User = {
     findById: (id, callback) => {
         // ADD 'password' and 'referrer_id' to the SELECT statement
         // Corrected SQL to include referrer_id
-        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
+        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password, required_recharge_amount FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 console.error(`[User Model - findById] Database error for User ${id}:`, err);
@@ -202,6 +202,24 @@ const User = {
     updateWithdrawalWalletAddress: (userId, newAddress, callback) => {
         const sql = `UPDATE users SET withdrawal_wallet_address = ? WHERE id = ?`;
         db.query(sql, [newAddress, userId], callback);
+    },
+
+    /**
+     * NEW: Sets a required recharge amount on a user's account.
+     * This "locks" the account until a specific recharge is made.
+     */
+    setRequiredRecharge: (userId, amount, callback) => {
+        const sql = `UPDATE users SET required_recharge_amount = ? WHERE id = ?`;
+        db.query(sql, [amount, userId], callback);
+    },
+
+    /**
+     * NEW: Clears the required recharge amount.
+     * This "unlocks" the account.
+     */
+    clearRequiredRecharge: (userId, callback) => {
+        const sql = `UPDATE users SET required_recharge_amount = NULL WHERE id = ?`;
+        db.query(sql, [userId], callback);
     }
 };
 
