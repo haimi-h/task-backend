@@ -4,6 +4,8 @@ const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket'); // Assuming socket might be used later
+// In task.controller.js, at the top with other constants
+const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% for the invited customer
 
 // Helper function to keep code DRY and include new lucky order states
 // Added `luckyOrderRequiresRecharge`, `injectionPlanId`, `product_profit` as parameters
@@ -201,6 +203,24 @@ exports.submitTaskRating = (req, res) => {
                             User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
+                                User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                if (findReferralsErr) {
+                    console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                } else if (referredUsers && referredUsers.length > 0) {
+                    const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
+                    referredUsers.forEach(referredUser => {
+                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                            if (referredUpdateErr) {
+                                console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                            } else {
+                                console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
+                            }
+                        });
+                    });
+                } else {
+                    console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
+                }
+            });
                             });
                         }, 2000);
 
@@ -213,6 +233,24 @@ exports.submitTaskRating = (req, res) => {
 
                     User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+        if (findReferralsErr) {
+            console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+        } else if (referredUsers && referredUsers.length > 0) {
+            const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
+            referredUsers.forEach(referredUser => {
+                User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                    if (referredUpdateErr) {
+                        console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                    } else {
+                        console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
+                    }
+                });
+            });
+        } else {
+            console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
+        }
+    });
                         res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                     });
                 }

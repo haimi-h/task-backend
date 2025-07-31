@@ -177,6 +177,16 @@ const User = {
             });
         });
     },
+    findUsersByReferrerId: (referrerId, callback) => {
+    const sql = `SELECT id, username, phone, wallet_balance FROM users WHERE referrer_id = ?`;
+    db.query(sql, [referrerId], (err, results) => {
+        if (err) {
+            console.error(`[User Model - findUsersByReferrerId] Error fetching referred users for referrer ${referrerId}:`, err);
+            return callback(err, null);
+        }
+        callback(null, results);
+    });
+},
 
     updateProfile: (userId, userData, callback) => {
         const fields = [];
