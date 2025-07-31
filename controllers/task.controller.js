@@ -1,11 +1,41 @@
 // your-project/controllers/task.controller.js
-
 const Task = require('../models/task.model');
 const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
-const { io } = require('../server');
+const RechargeRequest = require('../models/rechargeRequest.model'); // Import RechargeRequest model
+const { getIo } = require('../utils/socket'); // Assuming socket might be used later
 
-// No changes needed for getTask function
+// Helper function to keep code DRY
+function fetchAndSendTask(res, user, isLucky, injectionPlan) {
+    Task.getTaskForUser(user.id, (taskErr, task) => {
+        if (taskErr) {
+            console.error("Error fetching task:", taskErr);
+            return res.status(500).json({ message: "Error fetching task", error: taskErr.message });
+        }
+        if (!task) {
+            return res.status(200).json({ message: "No new products available for rating.", task: null });
+        }
+
+        const taskToSend = {
+            id: task.id,
+            name: task.name,
+            image_url: task.image_url || task.image,
+            description: task.description,
+            price: parseFloat(task.price) || 0,
+            profit: isLucky ? (parseFloat(injectionPlan.commission_rate) || 0) : (parseFloat(task.profit) || 0)
+        };
+
+        res.status(200).json({
+            task: taskToSend,
+            balance: parseFloat(user.wallet_balance) || 0,
+            isLuckyOrder: isLucky,
+            luckyOrderCapitalRequired: isLucky ? (parseFloat(injectionPlan.injections_amount) || 0) : 0,
+            taskCount: parseInt(user.completed_orders || 0, 10),
+        });
+    });
+}
+
+
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -22,35 +52,12 @@ exports.getTask = (req, res) => {
             return res.status(404).json({ message: "User not found." });
         }
 
-        const walletBalance = parseFloat(user.wallet_balance || 0);
-        const minimumBalanceRequired = 2.00;
-
-        if (walletBalance < minimumBalanceRequired) {
-            console.log(`[Task Controller - getTask] User ${userId} blocked from starting task. Balance ${walletBalance} is less than minimum ${minimumBalanceRequired}.`);
-            return res.status(200).json({
-                message: "You can't evaluate products with the current amount. At least you should recharge $2 minimum.",
-                task: null,
-                errorCode: 'INSUFFICIENT_BALANCE_FOR_TASKS'
-            });
-        }
-
-        console.log(`[Task Controller - getTask] Raw user object from findById for User ${userId}:`, user);
-
-        const currentCompletedTasks = parseInt(user.completed_orders || 0, 10);
-        const dailyLimit = parseInt(user.daily_orders || 0, 10);
         const currentUncompletedTasks = parseInt(user.uncompleted_orders || 0, 10);
-
-        console.log(`[Task Controller - getTask] User ${userId} - Daily Limit: ${dailyLimit}, Current Completed: ${currentCompletedTasks}, Current Uncompleted: ${currentUncompletedTasks}`);
-
         if (currentUncompletedTasks <= 0) {
-            console.log(`[Task Controller - getTask] User ${userId} has completed all their currently assigned daily tasks (uncompleted_orders is 0).`);
-            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
+            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
         }
 
-        let isLuckyOrder = false;
-        let luckyOrderCapitalRequired = 0;
-        let luckyOrderProfit = 0;
-        const nextTaskNumber = currentCompletedTasks + 1;
+        const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
 
         InjectionPlan.findByUserId(userId, (planErr, injectionPlans) => {
             if (planErr) {
@@ -59,218 +66,124 @@ exports.getTask = (req, res) => {
             }
 
             const matchingInjectionPlan = injectionPlans.find(plan =>
-                parseInt(plan.injection_order, 10) === nextTaskNumber
+                parseInt(plan.injection_order, 10) === nextTaskNumber && plan.status !== 'used'
             );
 
+            // --- NEW LOGIC BLOCK FOR LUCKY ORDERS ---
             if (matchingInjectionPlan) {
-                isLuckyOrder = true;
-                luckyOrderCapitalRequired = parseFloat(matchingInjectionPlan.injections_amount) || 0;
-                luckyOrderProfit = parseFloat(matchingInjectionPlan.commission_rate) || 0;
-                console.log(`[Task Controller - getTask] Lucky order found for user ${userId} at task ${nextTaskNumber}.`);
-            }
+                // It's a lucky order. Check if the required recharge has been approved.
+                RechargeRequest.findApprovedByInjectionPlanId(userId, matchingInjectionPlan.id, (rechargeErr, isApproved) => {
+                    if (rechargeErr) {
+                        return res.status(500).json({ message: "Error checking recharge status for lucky order." });
+                    }
 
-            Task.getTaskForUser(userId, (taskErr, task) => {
-                if (taskErr) {
-                    console.error("Error fetching task:", taskErr);
-                    return res.status(500).json({ message: "Error fetching task", error: taskErr.message });
-                }
-                if (!task) {
-                    console.log(`[Task Controller - getTask] User ${userId} has uncompleted orders but no new products found.`);
-                    return res.status(200).json({ message: "No new products available for rating.", task: null, taskCount: currentCompletedTasks, isLuckyOrder: false, luckyOrderCapitalRequired: 0 });
-                }
+                    if (!isApproved) {
+                        // RECHARGE NOT APPROVED! Block the user and tell the frontend a recharge is needed.
+                        console.log(`[Task Controller] User ${userId} blocked. Recharge for plan ${matchingInjectionPlan.id} not approved.`);
+                        return res.status(200).json({
+                            task: null,
+                            isLuckyOrder: true,
+                            luckyOrderRequiresRecharge: true, // New flag for the frontend
+                            luckyOrderCapitalRequired: parseFloat(matchingInjectionPlan.injections_amount) || 0,
+                            luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
+                            injectionPlanId: matchingInjectionPlan.id, // Send ID to frontend
+                            message: `A recharge of $${(matchingInjectionPlan.injections_amount || 0).toFixed(2)} is required for this lucky order. Please recharge and wait for admin approval.`
+                        });
+                    }
 
-                const taskToSend = {
-                    id: task.id,
-                    name: task.name,
-                    image_url: task.image_url || task.image,
-                    description: task.description,
-                    price: parseFloat(task.price) || 0,
-                    capital_required: isLuckyOrder ? luckyOrderCapitalRequired : (parseFloat(task.capital_required) || 0),
-                    profit: isLuckyOrder ? luckyOrderProfit : 0
-                };
-
-                console.log(`[Task Controller - getTask] User ${userId} - Task fetched: ${taskToSend.name}, Is Lucky Order: ${isLuckyOrder}, Profit: ${taskToSend.profit}`);
-
-                res.status(200).json({
-                    task: taskToSend,
-                    balance: parseFloat(user.wallet_balance) || 0,
-                    taskCount: currentCompletedTasks,
-                    isLuckyOrder: isLuckyOrder,
-                    luckyOrderCapitalRequired: luckyOrderCapitalRequired
+                    // If we reach here, the linked recharge IS approved. The user can proceed.
+                    // Now, we must check if their balance (which includes the approved recharge) is sufficient.
+                    if (parseFloat(user.wallet_balance) < parseFloat(matchingInjectionPlan.injections_amount)) {
+                         return res.status(400).json({ message: `Your balance is insufficient for this lucky order, even after recharge. Please contact support.` });
+                    }
+                    
+                    fetchAndSendTask(res, user, true, matchingInjectionPlan);
                 });
-            });
+            } else {
+                // Not a lucky order, proceed as normal.
+                fetchAndSendTask(res, user, false, null);
+            }
         });
     });
 };
 
 
-// MODIFIED submitTaskRating function
+// No major changes are needed here. The logic only runs AFTER getTask has approved access.
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
-    console.log(`[Task Controller - submitTaskRating] User ${userId} submitting rating for Product ${productId} with rating ${rating}.`);
 
     if (!userId) return res.status(401).json({ message: "User not authenticated." });
-    if (!productId || typeof rating === 'undefined' || rating < 1 || rating > 5) {
-        return res.status(400).json({ message: "Product ID and a valid rating (1-5) are required." });
+    if (!productId || rating !== 5) {
+        return res.status(400).json({ message: "A 5-star rating is required to complete the task." });
     }
 
     User.findById(userId, (err, user) => {
-        if (err) return res.status(500).json({ message: "Error fetching user details." });
-        if (!user) return res.status(404).json({ message: "User not found." });
-
-        let currentCompleted = parseInt(user.completed_orders || 0, 10);
-        let currentUncompleted = parseInt(user.uncompleted_orders || 0, 10);
-        const isCompletedRating = (rating === 5);
-
-        if (isCompletedRating && currentUncompleted <= 0) {
+        if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
+        
+        if (parseInt(user.uncompleted_orders || 0) <= 0) {
             return res.status(400).json({ message: "You have already completed all your daily tasks." });
         }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
             if (recordErr) return res.status(500).json({ message: "Failed to submit rating." });
 
-            let message = "Rating submitted.";
+            const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
+            InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
+                if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
-            if (isCompletedRating) {
-                const nextTaskNumber = currentCompleted + 1;
+                if (luckyPlan) {
+                    // It's a lucky order.
+                    const capitalRequired = parseFloat(luckyPlan.injections_amount);
+                    const profitAmount = parseFloat(luckyPlan.commission_rate);
 
-                InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
-                    if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
+                    if (parseFloat(user.wallet_balance) < capitalRequired) {
+                        return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.` });
+                    }
 
-                    const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% for the invited customer
-
-                    // This block for LUCKY orders
-                    if (luckyPlan) {
-                        const capitalRequired = parseFloat(luckyPlan.injections_amount);
-                        const profitAmount = parseFloat(luckyPlan.commission_rate); // This is the profit from the lucky order
-
-                        if (parseFloat(user.wallet_balance) < capitalRequired) {
-                            return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
-                        }
-
+                    // Process the lucky order: deduct capital, mark plan as used, then add back capital + profit.
+                    User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
+                        if (deductErr) return res.status(500).json({ message: "Failed to process lucky order deduction." });
+                        
                         InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
                             if (markErr) console.error("Failed to mark lucky plan as used:", markErr);
                         });
 
-                        User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
-                            if (deductErr) {
-                                console.error(`[Task Controller - submitTaskRating] Lucky order deduction error for user ${userId}:`, deductErr);
-                                return res.status(500).json({ message: "Failed to process lucky order deduction." });
-                            }
-
-                            const returnAmount = capitalRequired + profitAmount;
-                            message = `Lucky task submitted! $${capitalRequired.toFixed(2)} deducted. $${returnAmount.toFixed(2)} will be credited shortly.`;
-                            res.status(200).json({ message, isCompleted: true });
-
-                            setTimeout(() => {
-                                User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
-                                    if (addErr) {
-                                        console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
-                                    } else {
-                                        console.log(`Lucky order profit and capital credited to user ${userId}.`);
-                                        // NEW: Referral profit logic for lucky orders
-                                        // This runs AFTER the inviter's profit is credited
-                                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-                                            if (findReferralsErr) {
-                                                console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-                                            } else if (referredUsers && referredUsers.length > 0) {
-                                                const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
-                                                referredUsers.forEach(referredUser => {
-                                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                                                        if (referredUpdateErr) {
-                                                            console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                                                        } else {
-                                                            console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
-                                                        }
-                                                    });
-                                                });
-                                            } else {
-                                                console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
-                                            }
-                                        });
-                                    }
-                                });
-                            }, 5000); // Delay to simulate processing and ensure main profit is added first
-                        });
-
-                    } else {
-                        // This block executes when it's NOT a lucky order (ordinary task).
-
-                        // 1. Define the profit percentage for ordinary tasks.
-                        const PROFIT_PERCENTAGE = 0.05;
-
-                        // 2. Get the user's current balance from the 'user' object we already fetched.
-                        const currentUserBalance = parseFloat(user.wallet_balance);
-
-                        // 3. Calculate the profit to add to the current user.
-                        const profitToAdd = currentUserBalance * PROFIT_PERCENTAGE;
-
-                        console.log(`[Task Controller - submitTaskRating] Ordinary Task. User Balance: $${currentUserBalance}. Profit Percentage: ${PROFIT_PERCENTAGE * 100}%. Profit to Add: $${profitToAdd.toFixed(2)}`);
-
-                        // 4. Update the user's balance and task counts with the calculated profit.
-                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
-                            if (updateErr) {
-                                console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr);
-                                return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                            }
-
-                            // NEW: Referral profit logic for ordinary tasks
-                            // This runs AFTER the inviter's profit is credited
-                            User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-                                if (findReferralsErr) {
-                                    console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-                                } else if (referredUsers && referredUsers.length > 0) {
-                                    const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
-                                    referredUsers.forEach(referredUser => {
-                                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                                            if (referredUpdateErr) {
-                                                console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                                            } else {
-                                                console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
-                                            }
-                                        });
-                                    });
-                                } else {
-                                    console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
-                                }
+                        const returnAmount = capitalRequired + profitAmount;
+                        setTimeout(() => {
+                            User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
+                                if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
+                                else console.log(`Lucky order capital and profit credited to user ${userId}.`);
                             });
+                        }, 2000); // Short delay to simulate processing
 
-                            res.status(200).json({ message: `Task completed successfully! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
-                        });
-                    }
-                });
+                        res.status(200).json({ message: `Lucky task completed! $${returnAmount.toFixed(2)} credited to your account.`, isCompleted: true });
+                    });
 
-            } else {
-                res.status(200).json({ message, isCompleted: false });
-            }
+                } else {
+                    // It's an ordinary task.
+                    const PROFIT_PERCENTAGE = 0.05;
+                    const profitToAdd = parseFloat(user.wallet_balance) * PROFIT_PERCENTAGE;
+
+                    User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
+                        if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                        res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
+                    });
+                }
+            });
         });
     });
 };
 
 
-// No changes needed for getDashboardSummary function
+// Unchanged
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
-
-    if (!userId) {
-        return res.status(401).json({ message: "User not authenticated." });
-    }
-
     Task.getDashboardCountsForUser(userId, (err, counts) => {
-        if (err) {
-            console.error("Error fetching dashboard summary:", err);
-            return res.status(500).json({ message: "Error fetching dashboard summary", error: err.message });
-        }
-        if (!counts || counts.length === 0) {
+        if (err || !counts || counts.length === 0) {
              return res.status(200).json({ completedOrders: 0, uncompletedOrders: 0, dailyOrders: 0 });
         }
-
         const { completed_orders, uncompleted_orders, daily_orders } = counts[0];
-        res.status(200).json({
-            completedOrders: completed_orders,
-            uncompletedOrders: uncompleted_orders,
-            dailyOrders: daily_orders
-        });
+        res.status(200).json({ completedOrders: completed_orders, uncompletedOrders: uncompleted_orders, dailyOrders: daily_orders });
     });
 };

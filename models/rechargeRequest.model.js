@@ -7,17 +7,37 @@ const RechargeRequest = {
      * @param {number} userId - The ID of the user initiating the recharge.
      * @param {number} amount - The amount recharged.
      * @param {string} currency - The currency (e.g., 'USDT', 'TRX').
-     * @param {string|null} receiptImageUrl - URL to the uploaded receipt image (now optional).
-     * @param {string|null} whatsappNumber - User's WhatsApp number for receipt (now optional).
+     * @param {string|null} receiptImageUrl - URL to the uploaded receipt image.
+     * @param {string|null} whatsappNumber - User's WhatsApp number for receipt.
+     * @param {number|null} injectionPlanId - The ID of the lucky order plan, if applicable.
      * @param {function} callback - Callback function (err, result)
      */
-    create: (userId, amount, currency, receiptImageUrl, whatsappNumber, callback) => {
+    create: (userId, amount, currency, receiptImageUrl, whatsappNumber, injectionPlanId, callback) => {
         const sql = `
-            INSERT INTO recharge_requests (user_id, amount, currency, receipt_image_url, whatsapp_number, status)
-            VALUES (?, ?, ?, ?, ?, 'pending');
+            INSERT INTO recharge_requests (user_id, amount, currency, receipt_image_url, whatsapp_number, status, injection_plan_id)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?);
         `;
-        // Ensure receiptImageUrl and whatsappNumber are explicitly passed as null if not provided
-        db.query(sql, [userId, amount, currency, receiptImageUrl || null, whatsappNumber || null], callback);
+        // Ensure optional fields are explicitly null
+        db.query(sql, [userId, amount, currency, receiptImageUrl || null, whatsappNumber || null, injectionPlanId || null], callback);
+    },
+
+    /**
+     * NEW FUNCTION: Checks if an approved recharge exists for a specific injection plan.
+     * @param {number} userId - The ID of the user.
+     * @param {number} injectionPlanId - The ID of the lucky order plan.
+     * @param {function} callback - Callback function (err, result)
+     */
+    findApprovedByInjectionPlanId: (userId, injectionPlanId, callback) => {
+        const sql = `
+            SELECT id FROM recharge_requests
+            WHERE user_id = ? AND injection_plan_id = ? AND status = 'approved'
+            LIMIT 1;
+        `;
+        db.query(sql, [userId, injectionPlanId], (err, results) => {
+            if (err) return callback(err);
+            // Return true if a matching approved request is found, otherwise false
+            callback(null, results.length > 0);
+        });
     },
 
     /**
@@ -58,7 +78,8 @@ const RechargeRequest = {
                 status,
                 admin_notes,
                 created_at,
-                updated_at
+                updated_at,
+                injection_plan_id
             FROM
                 recharge_requests
             WHERE
@@ -104,7 +125,8 @@ const RechargeRequest = {
                 rr.status,
                 rr.admin_notes,
                 rr.created_at,
-                rr.updated_at
+                rr.updated_at,
+                rr.injection_plan_id
             FROM
                 recharge_requests rr
             JOIN
@@ -120,7 +142,6 @@ const RechargeRequest = {
 
     /**
      * Fetches a user's recharge requests, optionally filtered by status.
-     * This can be used to display rejected recharges on the user's tasking page.
      * @param {number} userId - The ID of the user.
      * @param {string} [status] - Optional status to filter by (e.g., 'rejected', 'approved').
      * @param {function} callback - Callback function (err, requests)

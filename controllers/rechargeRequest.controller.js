@@ -4,22 +4,21 @@ const { getIo } = require('../utils/socket');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const User = require('../models/user.model');
 
-// Submit a new recharge request
+// MODIFIED: This function now handles the injectionPlanId for lucky orders
 exports.submitRechargeRequest = (req, res) => {
-  const { amount } = req.body;
+  // Destructure all expected fields from the body
+  const { amount, currency, receiptImageUrl, whatsappNumber, injectionPlanId } = req.body;
   const userId = req.user.id;
 
-  const query = 'INSERT INTO recharge_requests (user_id, amount, status) VALUES (?, ?, ?)';
-  const values = [userId, amount, 'pending'];
-
-  db.query(query, values, (err, result) => {
+  // The model's create function now accepts injectionPlanId. We pass it along.
+  RechargeRequest.create(userId, amount, currency, receiptImageUrl, whatsappNumber, injectionPlanId, (err, result) => {
     if (err) {
       console.error('Error submitting recharge request:', err);
       return res.status(500).json({ error: 'Database error' });
     }
 
     const rechargeRequestId = result.insertId;
-    const io = getIo(); // ✅ Socket reference
+    const io = getIo(); // Get socket instance
 
     if (io) {
       // Fetch user details to include in the emitted event
@@ -46,6 +45,7 @@ exports.submitRechargeRequest = (req, res) => {
     res.status(200).json({ message: 'Recharge request submitted successfully.' });
   });
 };
+
 
 // Get all pending recharge requests (admin)
 exports.getPendingRechargeRequests = (req, res) => {
@@ -91,7 +91,6 @@ exports.getRechargeHistoryForUser = (req, res) => {
       console.error(`Error fetching recharge history for user ${userId}:`, err);
       return res.status(500).json({ message: "Failed to fetch recharge history." });
     }
-    // The model will return an array of requests, which is exactly what the frontend expects.
     res.status(200).json(requests);
   });
 };
@@ -180,7 +179,7 @@ exports.rejectRechargeRequest = (req, res) => {
         return res.status(500).json({ message: "Failed to reject recharge request." });
       }
 
-      const io = getIo(); // ✅ FIXED: Ensure we get the socket instance
+      const io = getIo();
       if (io) {
         io.to(`user-${request.user_id}`).emit('rechargeRejected', {
           requestId: request.id,
