@@ -91,69 +91,74 @@ exports.getRechargeHistoryForUser = (req, res) => {
       console.error(`Error fetching recharge history for user ${userId}:`, err);
       return res.status(500).json({ message: "Failed to fetch recharge history." });
     }
+    // The model will return an array of requests, which is exactly what the frontend expects.
     res.status(200).json(requests);
   });
 };
 
 // Approve a recharge request (admin)
 exports.approveRechargeRequest = (req, res) => {
-    const { requestId } = req.params;
-    const { admin_notes } = req.body;
+  const { requestId } = req.params;
+  const { admin_notes } = req.body;
 
-    RechargeRequest.findById(requestId, (err, request) => {
-        if (err) return res.status(500).json({ message: "Failed to find recharge request." });
-        if (!request) return res.status(404).json({ message: "Recharge request not found." });
+  RechargeRequest.findById(requestId, (err, request) => {
+    if (err) {
+      console.error(`Error finding recharge request ${requestId}:`, err);
+      return res.status(500).json({ message: "Failed to find recharge request." });
+    }
+    if (!request) {
+      return res.status(404).json({ message: "Recharge request not found." });
+    }
 
-        User.findById(request.user_id, (findUserErr, user) => {
-            if (findUserErr || !user) {
-                return res.status(404).json({ message: "User associated with this recharge not found." });
+    db.beginTransaction(transErr => {
+      if (transErr) {
+        console.error("Error starting transaction:", transErr);
+        return res.status(500).json({ message: "Database transaction error." });
+      }
+
+      RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
+        if (updateErr) {
+          return db.rollback(() => {
+            console.error(`Error updating status for ${requestId}:`, updateErr);
+            res.status(500).json({ message: "Failed to approve recharge request status." });
+          });
+        }
+
+        User.updateWalletBalance(request.user_id, request.amount, 'add', (userUpdateErr) => {
+          if (userUpdateErr) {
+            return db.rollback(() => {
+              console.error(`Error updating user wallet:`, userUpdateErr);
+              res.status(500).json({ message: "Recharge approved, but failed to update wallet." });
+            });
+          }
+
+          db.commit(commitErr => {
+            if (commitErr) {
+              return db.rollback(() => {
+                console.error("Commit error:", commitErr);
+                res.status(500).json({ message: "Failed to commit recharge approval." });
+              });
             }
 
-            const rechargeAmount = parseFloat(request.amount);
-            const requiredAmount = user.required_recharge_amount ? parseFloat(user.required_recharge_amount) : null;
-            let userShouldBeUnlocked = requiredAmount !== null && rechargeAmount >= requiredAmount;
+            const io = getIo();
+            if (io) {
+              io.to(`user-${request.user_id}`).emit('rechargeApproved', {
+                requestId: request.id,
+                amount: request.amount,
+                currency: request.currency,
+                admin_notes
+              });
+            } else {
+              console.warn('Socket.IO not available for rechargeApproved.');
+            }
 
-            db.beginTransaction(transErr => {
-                if (transErr) return res.status(500).json({ message: "Database transaction error." });
-
-                RechargeRequest.updateStatus(requestId, 'approved', admin_notes, (updateErr) => {
-                    if (updateErr) return db.rollback(() => res.status(500).json({ message: "Failed to approve recharge request status." }));
-
-                    User.updateWalletBalance(request.user_id, rechargeAmount, 'add', (userUpdateErr) => {
-                        if (userUpdateErr) return db.rollback(() => res.status(500).json({ message: "Recharge approved, but failed to update wallet." }));
-
-                        const finalise = (finalResponse) => {
-                            db.commit(commitErr => {
-                                if (commitErr) return db.rollback(() => res.status(500).json({ message: "Failed to commit recharge approval." }));
-                                
-                                const io = getIo();
-                                if (io) {
-                                    io.to(`user-${request.user_id}`).emit('rechargeApproved', {
-                                        requestId: request.id,
-                                        amount: request.amount,
-                                        currency: request.currency,
-                                        admin_notes
-                                    });
-                                }
-                                res.status(200).json(finalResponse);
-                            });
-                        };
-
-                        if (userShouldBeUnlocked) {
-                            User.clearRequiredRecharge(request.user_id, (clearErr) => {
-                                if (clearErr) return db.rollback(() => res.status(500).json({ message: "Wallet credited, but failed to unlock account." }));
-                                finalise({ message: "Recharge request approved, wallet credited, and lucky order unlocked." });
-                            });
-                        } else {
-                            finalise({ message: "Recharge request approved and wallet credited." });
-                        }
-                    });
-                });
-            });
+            res.status(200).json({ message: "Recharge request approved and wallet credited." });
+          });
         });
+      });
     });
+  });
 };
-
 
 // Reject a recharge request (admin)
 exports.rejectRechargeRequest = (req, res) => {
@@ -175,7 +180,7 @@ exports.rejectRechargeRequest = (req, res) => {
         return res.status(500).json({ message: "Failed to reject recharge request." });
       }
 
-      const io = getIo();
+      const io = getIo(); // ✅ FIXED: Ensure we get the socket instance
       if (io) {
         io.to(`user-${request.user_id}`).emit('rechargeRejected', {
           requestId: request.id,

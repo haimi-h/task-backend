@@ -5,6 +5,7 @@ const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
 const { io } = require('../server');
 
+// No changes needed for getTask function
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -19,15 +20,6 @@ exports.getTask = (req, res) => {
         }
         if (!user) {
             return res.status(404).json({ message: "User not found." });
-        }
-
-        // --- NEW: Check for a required recharge FIRST ---
-        if (user.required_recharge_amount !== null && user.required_recharge_amount > 0) {
-            return res.status(403).json({
-                message: `A lucky order requires you to recharge $${parseFloat(user.required_recharge_amount).toFixed(2)} to continue.`,
-                task: null,
-                errorCode: 'LUCKY_ORDER_RECHARGE_REQUIRED'
-            });
         }
 
         const walletBalance = parseFloat(user.wallet_balance || 0);
@@ -111,6 +103,8 @@ exports.getTask = (req, res) => {
     });
 };
 
+
+// MODIFIED submitTaskRating function
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -124,14 +118,6 @@ exports.submitTaskRating = (req, res) => {
     User.findById(userId, (err, user) => {
         if (err) return res.status(500).json({ message: "Error fetching user details." });
         if (!user) return res.status(404).json({ message: "User not found." });
-        
-        // --- NEW: Add this check at the start of the function ---
-        if (user.required_recharge_amount !== null && user.required_recharge_amount > 0) {
-            return res.status(403).json({
-                message: `You cannot complete tasks until you recharge the required amount of $${parseFloat(user.required_recharge_amount).toFixed(2)}.`,
-                isCompleted: false
-            });
-        }
 
         let currentCompleted = parseInt(user.completed_orders || 0, 10);
         let currentUncompleted = parseInt(user.uncompleted_orders || 0, 10);
@@ -152,40 +138,85 @@ exports.submitTaskRating = (req, res) => {
                 InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                     if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
-                    // --- THIS ENTIRE BLOCK IS THE NEW LOGIC FOR LUCKY ORDERS ---
-                    if (luckyPlan) {
-                        const profitAmount = parseFloat(luckyPlan.commission_rate);
-                        const capitalToRecharge = parseFloat(luckyPlan.injections_amount);
+                    const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% for the invited customer
 
-                        // Set the required recharge amount on the user's account and stop them.
-                        User.setRequiredRecharge(userId, capitalToRecharge, (setErr) => {
-                            if (setErr) {
-                                console.error(`[Task Controller] Error setting required recharge for user ${userId}:`, setErr);
-                                return res.status(500).json({ message: "A server error occurred while processing the lucky order." });
-                            }
-                            
-                            // Inform the user they must recharge this specific amount.
-                            return res.status(400).json({ 
-                                message: `Lucky order! You will earn a profit of $${profitAmount.toFixed(2)}. You need to recharge $${capitalToRecharge.toFixed(2)} to proceed.`, 
-                                isCompleted: false,
-                                errorCode: 'LUCKY_ORDER_RECHARGE_REQUIRED'
-                            });
+                    // This block for LUCKY orders
+                    if (luckyPlan) {
+                        const capitalRequired = parseFloat(luckyPlan.injections_amount);
+                        const profitAmount = parseFloat(luckyPlan.commission_rate); // This is the profit from the lucky order
+
+                        if (parseFloat(user.wallet_balance) < capitalRequired) {
+                            return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}.`, isCompleted: false });
+                        }
+
+                        InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
+                            if (markErr) console.error("Failed to mark lucky plan as used:", markErr);
                         });
+
+                        User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
+                            if (deductErr) {
+                                console.error(`[Task Controller - submitTaskRating] Lucky order deduction error for user ${userId}:`, deductErr);
+                                return res.status(500).json({ message: "Failed to process lucky order deduction." });
+                            }
+
+                            const returnAmount = capitalRequired + profitAmount;
+                            message = `Lucky task submitted! $${capitalRequired.toFixed(2)} deducted. $${returnAmount.toFixed(2)} will be credited shortly.`;
+                            res.status(200).json({ message, isCompleted: true });
+
+                            setTimeout(() => {
+                                User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
+                                    if (addErr) {
+                                        console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
+                                    } else {
+                                        console.log(`Lucky order profit and capital credited to user ${userId}.`);
+                                        // NEW: Referral profit logic for lucky orders
+                                        // This runs AFTER the inviter's profit is credited
+                                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                                            if (findReferralsErr) {
+                                                console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                                            } else if (referredUsers && referredUsers.length > 0) {
+                                                const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
+                                                referredUsers.forEach(referredUser => {
+                                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                                        if (referredUpdateErr) {
+                                                            console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                                        } else {
+                                                            console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
+                                                        }
+                                                    });
+                                                });
+                                            } else {
+                                                console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
+                                            }
+                                        });
+                                    }
+                                });
+                            }, 5000); // Delay to simulate processing and ensure main profit is added first
+                        });
+
                     } else {
                         // This block executes when it's NOT a lucky order (ordinary task).
+
+                        // 1. Define the profit percentage for ordinary tasks.
                         const PROFIT_PERCENTAGE = 0.05;
+
+                        // 2. Get the user's current balance from the 'user' object we already fetched.
                         const currentUserBalance = parseFloat(user.wallet_balance);
+
+                        // 3. Calculate the profit to add to the current user.
                         const profitToAdd = currentUserBalance * PROFIT_PERCENTAGE;
 
                         console.log(`[Task Controller - submitTaskRating] Ordinary Task. User Balance: $${currentUserBalance}. Profit Percentage: ${PROFIT_PERCENTAGE * 100}%. Profit to Add: $${profitToAdd.toFixed(2)}`);
 
+                        // 4. Update the user's balance and task counts with the calculated profit.
                         User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                             if (updateErr) {
                                 console.error(`[Task Controller - submitTaskRating] Error updating user balance/task counts for user ${userId}:`, updateErr);
                                 return res.status(500).json({ message: "Task completed, but failed to update user data." });
                             }
-                            
-                            const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% for the invited customer
+
+                            // NEW: Referral profit logic for ordinary tasks
+                            // This runs AFTER the inviter's profit is credited
                             User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
                                 if (findReferralsErr) {
                                     console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
@@ -217,6 +248,8 @@ exports.submitTaskRating = (req, res) => {
     });
 };
 
+
+// No changes needed for getDashboardSummary function
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
 
