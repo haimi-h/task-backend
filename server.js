@@ -17,7 +17,7 @@ const app = express();
 const server = http.createServer(app);
 
 const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? ['https://shopify-clone-orpin.vercel.app', 'https://admin-backend-lake.vercel.app']
+  ? ['https://shopify-clone-orpin.vercel.app', 'https://admin-backend-lake.vercel.app', 'https://shopf.linkadvertizing.com']
   : ['http://localhost:3000', 'http://localhost:3001'];
 
 app.use(cors({
