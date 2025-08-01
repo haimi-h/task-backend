@@ -6,6 +6,7 @@ const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket');
 const REFERRAL_PROFIT_PERCENTAGE = 0.10;
 
+// Helper function to keep code DRY
 function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresRecharge = false, injectionPlanId = null, product_profit_from_plan = 0) {
     Task.getTaskForUser(user.id, (taskErr, task) => {
         if (taskErr) {
@@ -38,6 +39,7 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
     });
 }
 
+// No changes needed in getTask
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -93,6 +95,13 @@ exports.getTask = (req, res) => {
     });
 };
 
+
+/**
+ * MODIFICATION: The 'else' block for standard tasks has been updated.
+ * Instead of calculating profit as 5% of the user's wallet, it now fetches the
+ * specific profit associated with the product being rated. This corrects the logic
+ * and prevents the "double profit" issue reported by the client.
+ */
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -116,6 +125,7 @@ exports.submitTaskRating = (req, res) => {
             InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                 if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
+                // This is a LUCKY order. This logic was correct and remains unchanged.
                 if (luckyPlan) {
                     const capitalRequired = parseFloat(luckyPlan.injections_amount);
                     const profitAmount = parseFloat(luckyPlan.commission_rate);
@@ -136,6 +146,7 @@ exports.submitTaskRating = (req, res) => {
                             User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
+                                
                                 User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
                                     if (findReferralsErr) {
                                         console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
@@ -155,30 +166,39 @@ exports.submitTaskRating = (req, res) => {
                             });
                         }, 2000);
 
-                        res.status(200).json({ message: `Lucky task completed! $${returnAmount.toFixed(2)} credited to your account.`, isCompleted: true });
+                        res.status(200).json({ message: `Lucky task completed! $${returnAmount.toFixed(2)} will be credited to your account shortly.`, isCompleted: true });
                     });
 
                 } else {
-                    const PROFIT_PERCENTAGE = 0.05;
-                    const profitToAdd = parseFloat(user.wallet_balance) * PROFIT_PERCENTAGE;
+                    // This is a NORMAL task. This block is now corrected.
+                    // We fetch the product's specific profit instead of using a percentage of the user's balance.
+                    Task.getProductProfit(productId, (profitErr, productProfit) => {
+                        if (profitErr || productProfit === null) {
+                            console.error(`Error fetching profit for product ${productId}:`, profitErr);
+                            return res.status(500).json({ message: "Task completed, but failed to retrieve product profit." });
+                        }
 
-                    User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
-                        if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-                            if (findReferralsErr) {
-                                console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-                            } else if (referredUsers && referredUsers.length > 0) {
-                                const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
-                                referredUsers.forEach(referredUser => {
-                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                                        if (referredUpdateErr) {
-                                            console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                                        }
+                        const profitToAdd = parseFloat(productProfit);
+
+                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
+                            if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+
+                            User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                                if (findReferralsErr) {
+                                    console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                                } else if (referredUsers && referredUsers.length > 0) {
+                                    const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
+                                    referredUsers.forEach(referredUser => {
+                                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                            if (referredUpdateErr) {
+                                                console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                            }
+                                        });
                                     });
-                                });
-                            }
+                                }
+                            });
+                            res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                         });
-                        res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                     });
                 }
             });
@@ -186,7 +206,7 @@ exports.submitTaskRating = (req, res) => {
     });
 };
 
-// Ensure this function is exported
+// No changes needed in getDashboardSummary
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
     Task.getDashboardCountsForUser(userId, (err, counts) => {
