@@ -1,3 +1,4 @@
+// your-project/controllers/withdrawal.controller.js
 const User = require('../models/user.model');
 const Withdrawal = require('../models/withdrawal.model');
 const validator = require('validator');
@@ -26,8 +27,8 @@ exports.initiateWithdrawal = (req, res) => { // Removed async
             return res.status(500).json({ message: 'Database transaction error.' });
         }
 
-        // MODIFIED: Fetch user data using db.query (callback-based)
-        db.query('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address FROM users WHERE id = ? FOR UPDATE', [userId], (err, userRows) => {
+        // MODIFIED: Fetch user data including `uncompleted_orders` using db.query (callback-based)
+        db.query('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address, uncompleted_orders FROM users WHERE id = ? FOR UPDATE', [userId], (err, userRows) => {
             if (err) {
                 return db.rollback(() => {
                     console.error('Error fetching user for withdrawal:', err);
@@ -43,19 +44,29 @@ exports.initiateWithdrawal = (req, res) => { // Removed async
 
             const user = userRows[0];
 
-            // Ensure a withdrawal wallet address is set
+            // --- VALIDATION 1: Check for uncompleted tasks ---
+            if (user.uncompleted_orders > 0) {
+                return db.rollback(() => {
+                    res.status(400).json({ message: 'You must complete all daily tasks before withdrawing funds.' });
+                });
+            }
+
+            // --- VALIDATION 2: Ensure a withdrawal wallet address is set ---
             if (!user.withdrawal_wallet_address) {
                 return db.rollback(() => {
                     res.status(400).json({ message: 'Withdrawal wallet address not set. Please set it in your profile.' });
                 });
             }
 
-            // Basic validation for the withdrawal address (TRC20 USDT)
+            // --- REMOVED: Basic validation for the withdrawal address (TRC20 USDT) ---
+            // The following block has been removed as per your request.
+            /*
             if (network === 'TRC20' && (!validator.isAlphanumeric(user.withdrawal_wallet_address) || !user.withdrawal_wallet_address.startsWith('T') || user.withdrawal_wallet_address.length !== 34)) {
                 return db.rollback(() => {
                     res.status(400).json({ message: 'Invalid TRC20 withdrawal wallet address format configured for your account.' });
                 });
             }
+            */
 
             // Verify withdrawal password
             bcrypt.compare(withdrawal_password, user.withdrawal_password, (err, isPasswordMatch) => {
