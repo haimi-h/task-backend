@@ -1,4 +1,3 @@
-// your-project/controllers/withdrawal.controller.js
 const User = require('../models/user.model');
 const Withdrawal = require('../models/withdrawal.model');
 const validator = require('validator');
@@ -27,8 +26,8 @@ exports.initiateWithdrawal = (req, res) => { // Removed async
             return res.status(500).json({ message: 'Database transaction error.' });
         }
 
-        // MODIFIED: Fetch user data including `uncompleted_orders` using db.query (callback-based)
-        db.query('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address, uncompleted_orders FROM users WHERE id = ? FOR UPDATE', [userId], (err, userRows) => {
+        // MODIFIED: Fetch user data using db.query (callback-based)
+        db.query('SELECT wallet_balance, withdrawal_password, withdrawal_wallet_address FROM users WHERE id = ? FOR UPDATE', [userId], (err, userRows) => {
             if (err) {
                 return db.rollback(() => {
                     console.error('Error fetching user for withdrawal:', err);
@@ -43,14 +42,6 @@ exports.initiateWithdrawal = (req, res) => { // Removed async
             }
 
             const user = userRows[0];
-
-            // --- NEW VALIDATION ---
-            // Check if the user has any uncompleted tasks for the day.
-            if (user.uncompleted_orders > 0) {
-                return db.rollback(() => {
-                    res.status(400).json({ message: 'You must complete all daily tasks before withdrawing funds.' });
-                });
-            }
 
             // Ensure a withdrawal wallet address is set
             if (!user.withdrawal_wallet_address) {
