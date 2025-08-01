@@ -4,7 +4,8 @@ const User = require('../models/user.model');
 const InjectionPlan = require('../models/injectionPlan.model');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket');
-const REFERRAL_PROFIT_PERCENTAGE = 0.10;
+const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% profit for the referrer
+const NORMAL_TASK_PROFIT_PERCENTAGE = 0.05; // 5% profit for the user's own balance on normal tasks
 
 /**
  * Helper function to fetch and send task data to the client.
@@ -26,6 +27,7 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
             image_url: task.image_url || task.image,
             description: task.description,
             price: parseFloat(task.price) || 0,
+            // The profit shown on the card is either the lucky plan profit or the standard profit from the product.
             profit: isLucky ? product_profit_from_plan : (parseFloat(task.profit) || 0)
         };
 
@@ -101,9 +103,9 @@ exports.getTask = (req, res) => {
 };
 
 /**
- * This function includes the fix from the previous request.
- * It correctly calculates profit for standard tasks based on the product's profit value,
- * not as a percentage of the user's wallet.
+ * MODIFICATION: This function now correctly calculates the profit for normal tasks
+ * as 5% of the user's current balance, and for lucky orders, it uses the plan's
+ * commission_rate, as requested.
  */
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
@@ -149,7 +151,7 @@ exports.submitTaskRating = (req, res) => {
                             User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
-                                
+
                                 User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
                                     if (findReferralsErr) {
                                         console.error(`[Task Controller] Error finding referred users for inviter ${userId}:`, findReferralsErr);
@@ -172,33 +174,27 @@ exports.submitTaskRating = (req, res) => {
 
                 } else {
                     // Logic for a NORMAL task (Corrected Profit Calculation)
-                    Task.getProductProfit(productId, (profitErr, productProfit) => {
-                        if (profitErr || productProfit === null) {
-                            console.error(`Error fetching profit for product ${productId}:`, profitErr);
-                            return res.status(500).json({ message: "Task completed, but failed to retrieve product profit." });
-                        }
+                    // The 5% profit is calculated from the user's current balance.
+                    const profitToAdd = parseFloat(user.wallet_balance) * NORMAL_TASK_PROFIT_PERCENTAGE;
 
-                        const profitToAdd = parseFloat(productProfit);
+                    User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
+                        if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
 
-                        User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
-                            if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
-
-                            User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-                                if (findReferralsErr) {
-                                     console.error(`[Task Controller] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-                                } else if (referredUsers && referredUsers.length > 0) {
-                                    const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
-                                    referredUsers.forEach(referredUser => {
-                                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                                            if (referredUpdateErr) {
-                                                console.error(`[Task Controller] Error adding referral profit to user ${referredUser.id}:`, referredUpdateErr);
-                                            }
-                                        });
+                        User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
+                            if (findReferralsErr) {
+                                console.error(`[Task Controller] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                            } else if (referredUsers && referredUsers.length > 0) {
+                                const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
+                                referredUsers.forEach(referredUser => {
+                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                        if (referredUpdateErr) {
+                                            console.error(`[Task Controller] Error adding referral profit to user ${referredUser.id}:`, referredUpdateErr);
+                                        }
                                     });
-                                }
-                            });
-                            res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
+                                });
+                            }
                         });
+                        res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                     });
                 }
             });
@@ -210,7 +206,7 @@ exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
     Task.getDashboardCountsForUser(userId, (err, counts) => {
         if (err || !counts || !counts.length) {
-             return res.status(200).json({ completedOrders: 0, uncompletedOrders: 0, dailyOrders: 0 });
+            return res.status(200).json({ completedOrders: 0, uncompletedOrders: 0, dailyOrders: 0 });
         }
         const { completed_orders, uncompleted_orders, daily_orders } = counts[0];
         res.status(200).json({ completedOrders: completed_orders, uncompletedOrders: uncompleted_orders, dailyOrders: daily_orders });
