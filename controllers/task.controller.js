@@ -245,7 +245,7 @@ exports.submitTaskRating = (req, res) => {
                     });
 
                 } else {
-                    const PROFIT_PERCENTAGE = 0.009;
+                    const PROFIT_PERCENTAGE = 0.05;
                     const profitToAdd = parseFloat(user.wallet_balance) * PROFIT_PERCENTAGE;
 
                     User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
