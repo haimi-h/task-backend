@@ -5,7 +5,7 @@ const InjectionPlan = require('../models/injectionPlan.model');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket');
 const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% profit for the referrer
-const NORMAL_TASK_PROFIT_PERCENTAGE = 0.05; // 5% profit for the user's own balance on normal tasks
+const NORMAL_TASK_PROFIT_PERCENTAGE = 0.009; // 5% profit for the user's own balance on normal tasks
 
 /**
  * Helper function to fetch and send task data to the client.
