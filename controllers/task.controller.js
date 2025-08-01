@@ -6,7 +6,6 @@ const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket');
 const REFERRAL_PROFIT_PERCENTAGE = 0.10;
 
-// This helper function remains unchanged but is included for context.
 function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresRecharge = false, injectionPlanId = null, product_profit_from_plan = 0) {
     Task.getTaskForUser(user.id, (taskErr, task) => {
         if (taskErr) {
@@ -39,7 +38,6 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
     });
 }
 
-// UPDATED LOGIC
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -71,35 +69,30 @@ exports.getTask = (req, res) => {
                 const capitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
                 const isBalanceInsufficient = parseFloat(user.wallet_balance) < capitalRequired;
                 
-                // This call now determines if the user has an approved recharge for this specific plan
                 RechargeRequest.findApprovedByInjectionPlanId(userId, matchingInjectionPlan.id, (rechargeErr, isApproved) => {
                     if (rechargeErr) {
                         return res.status(500).json({ message: "Error checking recharge status." });
                     }
 
-                    // The user needs to recharge if their balance is insufficient AND they haven't been approved for this plan's recharge yet.
                     const needsRecharge = isBalanceInsufficient && !isApproved;
                     
-                    // Always fetch the task. The frontend will decide how to display it.
                     fetchAndSendTask(
                         res, 
                         user, 
-                        true, // isLucky
+                        true,
                         matchingInjectionPlan, 
-                        needsRecharge, // luckyOrderRequiresRecharge
+                        needsRecharge,
                         matchingInjectionPlan.id, 
                         parseFloat(matchingInjectionPlan.commission_rate)
                     );
                 });
             } else {
-                // No lucky order, fetch a normal task
                 fetchAndSendTask(res, user, false, null);
             }
         });
     });
 };
 
-// This function remains unchanged as its logic is correct.
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -157,8 +150,6 @@ exports.submitTaskRating = (req, res) => {
                                                 }
                                             });
                                         });
-                                    } else {
-                                        console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
                                     }
                                 });
                             });
@@ -182,13 +173,9 @@ exports.submitTaskRating = (req, res) => {
                                     User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
                                         if (referredUpdateErr) {
                                             console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                                        } else {
-                                            console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
                                         }
                                     });
                                 });
-                            } else {
-                                console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
                             }
                         });
                         res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
@@ -196,5 +183,17 @@ exports.submitTaskRating = (req, res) => {
                 }
             });
         });
+    });
+};
+
+// Ensure this function is exported
+exports.getDashboardSummary = (req, res) => {
+    const userId = req.user.id;
+    Task.getDashboardCountsForUser(userId, (err, counts) => {
+        if (err || !counts || !counts.length) {
+             return res.status(200).json({ completedOrders: 0, uncompletedOrders: 0, dailyOrders: 0 });
+        }
+        const { completed_orders, uncompleted_orders, daily_orders } = counts[0];
+        res.status(200).json({ completedOrders: completed_orders, uncompletedOrders: uncompleted_orders, dailyOrders: daily_orders });
     });
 };
