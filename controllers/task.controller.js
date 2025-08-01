@@ -158,7 +158,6 @@ exports.getTask = (req, res) => {
     });
 };
 
-// This function remains unchanged, as it was already correct.
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -186,7 +185,6 @@ exports.submitTaskRating = (req, res) => {
                     const capitalRequired = parseFloat(luckyPlan.injections_amount);
                     const profitAmount = parseFloat(luckyPlan.commission_rate);
 
-                    // Re-check balance at submission, this handles cases where balance might drop after fetching task.
                     if (parseFloat(user.wallet_balance) < capitalRequired) {
                         return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}. Please recharge.` });
                     }
@@ -199,58 +197,78 @@ exports.submitTaskRating = (req, res) => {
                         });
 
                         const returnAmount = capitalRequired + profitAmount;
+                        
+                        // ⭐ CORRECTED LOGIC STARTS HERE ⭐
                         setTimeout(() => {
-                            User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
-                                if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
-                                else console.log(`Lucky order capital and profit credited to user ${userId}.`);
+                            // Step 1: Add ONLY the lucky profit and update all task counters.
+                            User.updateBalanceAndTaskCount(userId, profitAmount, 'add', (addProfitErr) => {
+                                if (addProfitErr) {
+                                    console.error(`[Task Controller - submitTaskRating] Error adding profit for lucky order user ${userId}:`, addProfitErr);
+                                    // Attempt to return capital even if profit addition fails.
+                                } else {
+                                    console.log(`[Task Controller - submitTaskRating] Lucky order profit of ${profitAmount} credited to user ${userId}.`);
+                                }
+
+                                // Step 2: Silently return the deducted capital without affecting task counters.
+                                User.updateWalletBalance(userId, capitalRequired, 'add', (returnCapitalErr) => {
+                                    if (returnCapitalErr) {
+                                        console.error(`[Task Controller - submitTaskRating] CRITICAL: Failed to return capital of ${capitalRequired} to user ${userId}:`, returnCapitalErr);
+                                    } else {
+                                        console.log(`[Task Controller - submitTaskRating] Lucky order capital of ${capitalRequired} returned to user ${userId}.`);
+                                    }
+                                });
+
+                                // Step 3: Handle referral profit distribution (runs in parallel).
                                 User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-                if (findReferralsErr) {
-                    console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-                } else if (referredUsers && referredUsers.length > 0) {
-                    const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
-                    referredUsers.forEach(referredUser => {
-                        User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                            if (referredUpdateErr) {
-                                console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                            } else {
-                                console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
-                            }
-                        });
-                    });
-                } else {
-                    console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
-                }
-            });
+                                    if (findReferralsErr) {
+                                        console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                                    } else if (referredUsers && referredUsers.length > 0) {
+                                        const profitForReferrals = profitAmount * REFERRAL_PROFIT_PERCENTAGE;
+                                        referredUsers.forEach(referredUser => {
+                                            User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                                if (referredUpdateErr) {
+                                                    console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                                } else {
+                                                    console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s lucky order.`);
+                                                }
+                                            });
+                                        });
+                                    } else {
+                                        console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed lucky order, but has no referred users.`);
+                                    }
+                                });
                             });
                         }, 2000);
+                        // ⭐ CORRECTED LOGIC ENDS HERE ⭐
 
-                        res.status(200).json({ message: `Lucky task completed! $${returnAmount.toFixed(2)} credited to your account.`, isCompleted: true });
+                        res.status(200).json({ message: `Lucky task completed! $${returnAmount.toFixed(2)} will be credited to your account.`, isCompleted: true });
                     });
 
                 } else {
-                    const PROFIT_PERCENTAGE = 0.05;
+                    const PROFIT_PERCENTAGE = 0.009;
                     const profitToAdd = parseFloat(user.wallet_balance) * PROFIT_PERCENTAGE;
 
                     User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                        
                         User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
-        if (findReferralsErr) {
-            console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
-        } else if (referredUsers && referredUsers.length > 0) {
-            const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
-            referredUsers.forEach(referredUser => {
-                User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
-                    if (referredUpdateErr) {
-                        console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
-                    } else {
-                        console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
-                    }
-                });
-            });
-        } else {
-            console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
-        }
-    });
+                            if (findReferralsErr) {
+                                console.error(`[Task Controller - submitTaskRating] Error finding referred users for inviter ${userId}:`, findReferralsErr);
+                            } else if (referredUsers && referredUsers.length > 0) {
+                                const profitForReferrals = profitToAdd * REFERRAL_PROFIT_PERCENTAGE;
+                                referredUsers.forEach(referredUser => {
+                                    User.updateWalletBalance(referredUser.id, profitForReferrals, 'add', (referredUpdateErr) => {
+                                        if (referredUpdateErr) {
+                                            console.error(`[Task Controller - submitTaskRating] Error adding referral profit to invited user ${referredUser.id}:`, referredUpdateErr);
+                                        } else {
+                                            console.log(`[Task Controller - submitTaskRating] Successfully added $${profitForReferrals.toFixed(2)} to invited user ${referredUser.username} (ID: ${referredUser.id}) from inviter ${userId}'s ordinary order.`);
+                                        }
+                                    });
+                                });
+                            } else {
+                                console.log(`[Task Controller - submitTaskRating] Inviter ${userId} completed ordinary order, but has no referred users.`);
+                            }
+                        });
                         res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                     });
                 }
@@ -259,7 +277,6 @@ exports.submitTaskRating = (req, res) => {
     });
 };
 
-// This function remains unchanged
 exports.getDashboardSummary = (req, res) => {
     const userId = req.user.id;
     Task.getDashboardCountsForUser(userId, (err, counts) => {
