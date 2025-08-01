@@ -45,9 +45,8 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
 }
 
 /**
- * MODIFICATION: This function no longer locks the task for lucky orders with insufficient balance.
- * It now always shows the task but sets a flag (`luckyOrderRequiresRecharge`) to true,
- * which the frontend uses to display an on-card warning message instead of a full-page block.
+ * UPDATED: This function now includes the detailed logic to handle lucky order recharge warnings
+ * based on the state of the recharge request and the user's wallet balance.
  */
 exports.getTask = (req, res) => {
     const userId = req.user.id;
@@ -77,23 +76,71 @@ exports.getTask = (req, res) => {
             );
 
             if (matchingInjectionPlan) {
-                // For a lucky order, check if the user's current balance is sufficient.
-                const capitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
-                const hasSufficientBalance = parseFloat(user.wallet_balance) >= capitalRequired;
+                // Check if a recharge request for this plan has been approved
+                RechargeRequest.findApprovedByInjectionPlanId(userId, matchingInjectionPlan.id, (rechargeErr, isApproved) => {
+                    if (rechargeErr) {
+                        return res.status(500).json({ message: "Error checking recharge status for lucky order." });
+                    }
 
-                // If balance is insufficient, we still show the task but set the recharge flag to true.
-                // This prevents locking the UI and shows the on-card warning instead.
-                const needsRecharge = !hasSufficientBalance;
+                    // --- SCENARIO 1: LUCKY ORDER - RECHARGE REQUIRED & NOT APPROVED (ON-CARD MESSAGE) ---
+                    if (!isApproved) {
+                        Task.getTaskForUser(user.id, (taskErr, task) => {
+                            if (taskErr) {
+                                console.error("Error fetching task for pending lucky order:", taskErr);
+                                return res.status(500).json({ message: "Error fetching task for lucky order", error: taskErr.message });
+                            }
+                            if (!task) {
+                                return res.status(200).json({
+                                    task: null,
+                                    isLuckyOrder: true,
+                                    luckyOrderRequiresRecharge: true,
+                                    luckyOrderCapitalRequired: parseFloat(matchingInjectionPlan.injections_amount) || 0,
+                                    luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
+                                    injectionPlanId: matchingInjectionPlan.id,
+                                    message: `A recharge of $${(parseFloat(matchingInjectionPlan.injections_amount) || 0).toFixed(2)} is required for this lucky order, but the task details could not be loaded. Please try again.`
+                                });
+                            }
+                            // Send the task data along with the recharge requirement flag
+                            res.status(200).json({
+                                task: {
+                                    id: task.id,
+                                    name: task.name,
+                                    image_url: task.image_url || task.image,
+                                    description: task.description,
+                                    price: parseFloat(task.price) || 0,
+                                    profit: parseFloat(matchingInjectionPlan.commission_rate) || 0
+                                },
+                                balance: parseFloat(user.wallet_balance) || 0,
+                                isLuckyOrder: true,
+                                luckyOrderRequiresRecharge: true, // Tell frontend to show on-card prompt
+                                luckyOrderCapitalRequired: parseFloat(matchingInjectionPlan.injections_amount) || 0,
+                                luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
+                                injectionPlanId: matchingInjectionPlan.id,
+                                taskCount: parseInt(user.completed_orders || 0, 10),
+                            });
+                        });
+                        return; // Exit after sending response for this scenario
+                    }
 
-                fetchAndSendTask(
-                    res,
-                    user,
-                    true, // isLucky
-                    matchingInjectionPlan,
-                    needsRecharge, // luckyOrderRequiresRecharge
-                    matchingInjectionPlan.id,
-                    parseFloat(matchingInjectionPlan.commission_rate)
-                );
+                    // --- SCENARIO 2: LUCKY ORDER - RECHARGE APPROVED BUT INSUFFICIENT BALANCE (FULL-PAGE BLOCKING) ---
+                    const capitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
+                    if (parseFloat(user.wallet_balance) < capitalRequired) {
+                        return res.status(200).json({
+                            task: null, // Explicitly block task display
+                            balance: parseFloat(user.wallet_balance) || 0,
+                            isLuckyOrder: true,
+                            luckyOrderRequiresRecharge: true, // Still needs further action (more recharge)
+                            luckyOrderCapitalRequired: capitalRequired,
+                            luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
+                            injectionPlanId: matchingInjectionPlan.id,
+                            message: `Your balance of $${(parseFloat(user.wallet_balance) || 0).toFixed(2)} is insufficient for this lucky order, which requires $${capitalRequired.toFixed(2)}. Please recharge.`
+                        });
+                    }
+
+                    // --- SCENARIO 3: LUCKY ORDER - RECHARGE APPROVED AND SUFFICIENT BALANCE (READY TO SUBMIT) ---
+                    // The user can now proceed with the lucky order.
+                    fetchAndSendTask(res, user, true, matchingInjectionPlan, false, matchingInjectionPlan.id, parseFloat(matchingInjectionPlan.commission_rate));
+                });
             } else {
                 // This is a normal task.
                 fetchAndSendTask(res, user, false, null);
