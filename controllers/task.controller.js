@@ -166,8 +166,27 @@ exports.submitTaskRating = (req, res) => {
     User.findById(userId, (err, user) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
+        // if (parseInt(user.uncompleted_orders || 0) <= 0) {
+        //     return res.status(400).json({ message: "You have already completed all your daily tasks." });
+        // }
+        // --- MODIFIED LOGIC HERE ---
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(400).json({ message: "You have already completed all your daily tasks." });
+            // All tasks are completed. Fetch the user again to get the latest balance.
+            User.findById(userId, (finalErr, updatedUser) => {
+                if (finalErr || !updatedUser) {
+                    // Fallback message if there's an error fetching the user again
+                    return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
+                }
+                
+                const finalBalance = parseFloat(updatedUser.wallet_balance) || 0;
+                
+                return res.status(200).json({
+                    message: `Congratulations, you have completed all your daily tasks! Your current balance is $${finalBalance.toFixed(2)} available for withdrawal.`,
+                    task: null, // No new task to show
+                    isDailyTaskCompletion: true // Flag to tell the frontend to show the special message
+                });
+            });
+            return; // Important: Exit the function after sending the final response.
         }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
@@ -226,19 +245,7 @@ exports.submitTaskRating = (req, res) => {
 
                     User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
-                        // --- NEW LOGIC ADDED HERE ---
-    // Check if all daily tasks are now completed
-    if (updatedUser && parseInt(updatedUser.uncompleted_orders || 0) === 0) {
-        // This is the final task of the day. Send the congratulations message.
-        const finalProfit = profitToAdd; // This is the profit from the last task.
-        const finalBalance = parseFloat(updatedUser.wallet_balance) || 0;
-        return res.status(200).json({
-            message: `Congratulations, you have completed your daily tasks with a profit of $${finalProfit.toFixed(2)}. You now have a current balance of $${finalBalance.toFixed(2)} available for withdrawal.`,
-            isCompleted: true,
-            isDailyTaskCompletion: true
-        });
-    }
-    // --- END OF NEW LOGIC ---
+                        
 
                         User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
                             if (findReferralsErr) {
