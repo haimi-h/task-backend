@@ -169,25 +169,16 @@ exports.submitTaskRating = (req, res) => {
         // if (parseInt(user.uncompleted_orders || 0) <= 0) {
         //     return res.status(400).json({ message: "You have already completed all your daily tasks." });
         // }
-        // --- MODIFIED LOGIC HERE ---
-        if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            // All tasks are completed. Fetch the user again to get the latest balance.
-            User.findById(userId, (finalErr, updatedUser) => {
-                if (finalErr || !updatedUser) {
-                    // Fallback message if there's an error fetching the user again
-                    return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
-                }
-                
-                const finalBalance = parseFloat(updatedUser.wallet_balance) || 0;
-                
-                return res.status(200).json({
-                    message: `Congratulations, you have completed all your daily tasks! Your current balance is $${finalBalance.toFixed(2)} available for withdrawal.`,
-                    task: null, // No new task to show
-                    isDailyTaskCompletion: true // Flag to tell the frontend to show the special message
-                });
-            });
-            return; // Important: Exit the function after sending the final response.
-        }
+        // --- REPLACED LOGIC HERE ---
+    if (parseInt(user.uncompleted_orders || 0) <= 0) {
+        const finalBalance = parseFloat(user.wallet_balance) || 0;
+        
+        return res.status(200).json({
+            message: `Congratulations, you have completed all your daily tasks! Your current balance is $${finalBalance.toFixed(2)} available for withdrawal.`,
+            task: null, // No new task to show
+            isDailyTaskCompletion: true // Flag to tell the frontend to show the special message
+        });
+    }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
             if (recordErr) return res.status(500).json({ message: "Failed to submit rating." });
