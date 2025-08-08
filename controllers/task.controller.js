@@ -226,6 +226,19 @@ exports.submitTaskRating = (req, res) => {
 
                     User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
+                        // --- NEW LOGIC ADDED HERE ---
+    // Check if all daily tasks are now completed
+    if (updatedUser && parseInt(updatedUser.uncompleted_orders || 0) === 0) {
+        // This is the final task of the day. Send the congratulations message.
+        const finalProfit = profitToAdd; // This is the profit from the last task.
+        const finalBalance = parseFloat(updatedUser.wallet_balance) || 0;
+        return res.status(200).json({
+            message: `Congratulations, you have completed your daily tasks with a profit of $${finalProfit.toFixed(2)}. You now have a current balance of $${finalBalance.toFixed(2)} available for withdrawal.`,
+            isCompleted: true,
+            isDailyTaskCompletion: true
+        });
+    }
+    // --- END OF NEW LOGIC ---
 
                         User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
                             if (findReferralsErr) {
@@ -241,6 +254,7 @@ exports.submitTaskRating = (req, res) => {
                                 });
                             }
                         });
+                        
                         res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });
                     });
                 }
