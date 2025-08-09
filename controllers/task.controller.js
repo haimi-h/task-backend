@@ -166,19 +166,9 @@ exports.submitTaskRating = (req, res) => {
     User.findById(userId, (err, user) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
-        // if (parseInt(user.uncompleted_orders || 0) <= 0) {
-        //     return res.status(400).json({ message: "You have already completed all your daily tasks." });
-        // }
-        // --- REPLACED LOGIC HERE ---
-    if (parseInt(user.uncompleted_orders || 0) <= 0) {
-        const finalBalance = parseFloat(user.wallet_balance) || 0;
-        
-        return res.status(200).json({
-            message: `Congratulations, you have completed all your daily tasks! Your current balance is $${finalBalance.toFixed(2)} available for withdrawal.`,
-            task: null, // No new task to show
-            isDailyTaskCompletion: true // Flag to tell the frontend to show the special message
-        });
-    }
+        if (parseInt(user.uncompleted_orders || 0) <= 0) {
+            return res.status(400).json({ message: "You have already completed all your daily tasks." });
+        }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
             if (recordErr) return res.status(500).json({ message: "Failed to submit rating." });
