@@ -18,6 +18,8 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
             return res.status(500).json({ message: "Error fetching task", error: taskErr.message });
         }
         if (!task) {
+            // This case is now for when there are no more products in the database to be rated.
+            // The "all tasks completed" message is handled in the main getTask function.
             return res.status(200).json({ message: "No new products available for rating.", task: null });
         }
 
@@ -55,6 +57,7 @@ exports.getTask = (req, res) => {
             return res.status(500).json({ message: "Error fetching user details." });
         }
 
+        // *** MODIFIED: New completion message ***
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
             const dailyProfit = parseFloat(user.daily_profit || 0).toFixed(2);
             const currentBalance = parseFloat(user.wallet_balance || 0).toFixed(2);
@@ -180,6 +183,7 @@ exports.submitTaskRating = (req, res) => {
 
                         const returnAmount = capitalRequired + profitAmount;
                         setTimeout(() => {
+                            // *** MODIFIED: Pass profitAmount to be added to daily_profit ***
                             User.updateBalanceAndTaskCount(userId, returnAmount, profitAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
@@ -205,10 +209,9 @@ exports.submitTaskRating = (req, res) => {
                     });
 
                 } else {
-                    // *** MODIFIED: Calculate profit based on the balance *before* daily profits were added ***
-                    const baseBalance = parseFloat(user.wallet_balance) - parseFloat(user.daily_profit);
-                    const profitToAdd = baseBalance * NORMAL_TASK_PROFIT_PERCENTAGE;
+                    const profitToAdd = parseFloat(user.wallet_balance) * NORMAL_TASK_PROFIT_PERCENTAGE;
 
+                    // *** MODIFIED: Pass profitToAdd to be added to daily_profit ***
                     User.updateBalanceAndTaskCount(userId, profitToAdd, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
 
