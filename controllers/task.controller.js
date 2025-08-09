@@ -182,6 +182,7 @@ exports.getTask = (req, res) => {
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
+    let profitToAdd;
 
     if (!userId) return res.status(401).json({ message: "User not authenticated." });
     if (!productId || rating !== 5) {
