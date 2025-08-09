@@ -81,6 +81,7 @@ const User = {
         let sql;
 
         if (type === 'add') { // A task has been successfully completed
+            console.log(`[updateBalanceAndTaskCount] User ${userId} completing task. Amount: ${amount} (type: ${typeof amount})`);
             sql = `
                 UPDATE users
                 SET
