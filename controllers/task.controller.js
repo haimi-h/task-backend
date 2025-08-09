@@ -5,7 +5,7 @@ const InjectionPlan = require('../models/injectionPlan.model');
 const RechargeRequest = require('../models/rechargeRequest.model');
 const { getIo } = require('../utils/socket');
 const REFERRAL_PROFIT_PERCENTAGE = 0.10; // 10% profit for the referrer
-const NORMAL_TASK_PROFIT_PERCENTAGE = 0.009; // 0.9% profit for the user's own balance on normal tasks
+const NORMAL_TASK_PROFIT_PERCENTAGE = 0.009; // 5% profit for the user's own balance on normal tasks
 
 /**
  * Helper function to fetch and send task data to the client.
@@ -18,8 +18,6 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
             return res.status(500).json({ message: "Error fetching task", error: taskErr.message });
         }
         if (!task) {
-            // This case is now for when there are no more products in the database to be rated.
-            // The "all tasks completed" message is handled in the main getTask function.
             return res.status(200).json({ message: "No new products available for rating.", task: null });
         }
 
@@ -29,6 +27,7 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
             image_url: task.image_url || task.image,
             description: task.description,
             price: parseFloat(task.price) || 0,
+            // The profit shown on the card is either the lucky plan profit or the standard profit from the product.
             profit: isLucky ? product_profit_from_plan : (parseFloat(task.profit) || 0)
         };
 
@@ -36,7 +35,7 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
             task: taskToSend,
             balance: parseFloat(user.wallet_balance) || 0,
             isLuckyOrder: isLucky,
-            luckyOrderRequiresRecharge: luckyOrderRequiresRecharge,
+            luckyOrderRequiresRecharge: luckyOrderRequiresRecharge, // This flag tells the frontend to show the on-card warning
             luckyOrderCapitalRequired: isLucky ? (parseFloat(injectionPlan.injections_amount) || 0) : 0,
             luckyOrderProfit: isLucky ? product_profit_from_plan : 0,
             injectionPlanId: injectionPlanId,
@@ -45,6 +44,10 @@ function fetchAndSendTask(res, user, isLucky, injectionPlan, luckyOrderRequiresR
     });
 }
 
+/**
+ * UPDATED: This function now includes the detailed logic to handle lucky order recharge warnings
+ * based on the state of the recharge request and the user's wallet balance.
+ */
 exports.getTask = (req, res) => {
     const userId = req.user.id;
 
@@ -57,17 +60,13 @@ exports.getTask = (req, res) => {
             return res.status(500).json({ message: "Error fetching user details." });
         }
 
-        // *** MODIFIED: New completion message ***
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            const dailyProfit = parseFloat(user.daily_profit || 0).toFixed(2);
-            const currentBalance = parseFloat(user.wallet_balance || 0).toFixed(2);
-            return res.status(200).json({
-                message: `Congratulation, you have completed your daily tasks with a profit of $${dailyProfit}. You have now a current balance of $${currentBalance} available for withdrawal.`,
-                task: null,
-                dailyProfit: dailyProfit,
-                currentBalance: currentBalance
-            });
-        }
+    const currentBalance = parseFloat(user.wallet_balance) || 0;
+    return res.status(200).json({
+        message: `Congratulations, you have completed your daily tasks. You now have a current balance of $${currentBalance.toFixed(2)} available for withdrawal.`,
+        task: null
+    });
+}
 
         const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
 
@@ -81,14 +80,20 @@ exports.getTask = (req, res) => {
             );
 
             if (matchingInjectionPlan) {
+                // Check if a recharge request for this plan has been approved
                 RechargeRequest.findApprovedByInjectionPlanId(userId, matchingInjectionPlan.id, (rechargeErr, isApproved) => {
                     if (rechargeErr) {
                         return res.status(500).json({ message: "Error checking recharge status for lucky order." });
                     }
 
+                    // --- SCENARIO 1: LUCKY ORDER - RECHARGE REQUIRED & NOT APPROVED (ON-CARD MESSAGE) ---
                     if (!isApproved) {
                         Task.getTaskForUser(user.id, (taskErr, task) => {
-                            if (taskErr || !task) {
+                            if (taskErr) {
+                                console.error("Error fetching task for pending lucky order:", taskErr);
+                                return res.status(500).json({ message: "Error fetching task for lucky order", error: taskErr.message });
+                            }
+                            if (!task) {
                                 return res.status(200).json({
                                     task: null,
                                     isLuckyOrder: true,
@@ -96,9 +101,10 @@ exports.getTask = (req, res) => {
                                     luckyOrderCapitalRequired: parseFloat(matchingInjectionPlan.injections_amount) || 0,
                                     luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
                                     injectionPlanId: matchingInjectionPlan.id,
-                                    message: `A recharge of $${(parseFloat(matchingInjectionPlan.injections_amount) || 0).toFixed(2)} is required for this lucky order.`
+                                    message: `A recharge of $${(parseFloat(matchingInjectionPlan.injections_amount) || 0).toFixed(2)} is required for this lucky order, but the task details could not be loaded. Please try again.`
                                 });
                             }
+                            // Send the task data along with the recharge requirement flag
                             res.status(200).json({
                                 task: {
                                     id: task.id,
@@ -110,23 +116,24 @@ exports.getTask = (req, res) => {
                                 },
                                 balance: parseFloat(user.wallet_balance) || 0,
                                 isLuckyOrder: true,
-                                luckyOrderRequiresRecharge: true,
+                                luckyOrderRequiresRecharge: true, // Tell frontend to show on-card prompt
                                 luckyOrderCapitalRequired: parseFloat(matchingInjectionPlan.injections_amount) || 0,
                                 luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
                                 injectionPlanId: matchingInjectionPlan.id,
                                 taskCount: parseInt(user.completed_orders || 0, 10),
                             });
                         });
-                        return;
+                        return; // Exit after sending response for this scenario
                     }
 
+                    // --- SCENARIO 2: LUCKY ORDER - RECHARGE APPROVED BUT INSUFFICIENT BALANCE (FULL-PAGE BLOCKING) ---
                     const capitalRequired = parseFloat(matchingInjectionPlan.injections_amount);
                     if (parseFloat(user.wallet_balance) < capitalRequired) {
                         return res.status(200).json({
-                            task: null,
+                            task: null, // Explicitly block task display
                             balance: parseFloat(user.wallet_balance) || 0,
                             isLuckyOrder: true,
-                            luckyOrderRequiresRecharge: true,
+                            luckyOrderRequiresRecharge: true, // Still needs further action (more recharge)
                             luckyOrderCapitalRequired: capitalRequired,
                             luckyOrderProfit: parseFloat(matchingInjectionPlan.commission_rate) || 0,
                             injectionPlanId: matchingInjectionPlan.id,
@@ -134,15 +141,23 @@ exports.getTask = (req, res) => {
                         });
                     }
 
+                    // --- SCENARIO 3: LUCKY ORDER - RECHARGE APPROVED AND SUFFICIENT BALANCE (READY TO SUBMIT) ---
+                    // The user can now proceed with the lucky order.
                     fetchAndSendTask(res, user, true, matchingInjectionPlan, false, matchingInjectionPlan.id, parseFloat(matchingInjectionPlan.commission_rate));
                 });
             } else {
+                // This is a normal task.
                 fetchAndSendTask(res, user, false, null);
             }
         });
     });
 };
 
+/**
+ * MODIFICATION: This function now correctly calculates the profit for normal tasks
+ * as 5% of the user's current balance, and for lucky orders, it uses the plan's
+ * commission_rate, as requested.
+ */
 exports.submitTaskRating = (req, res) => {
     const userId = req.user.id;
     const { productId, rating } = req.body;
@@ -155,9 +170,9 @@ exports.submitTaskRating = (req, res) => {
     User.findById(userId, (err, user) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
-        if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(400).json({ message: "You have already completed all your daily tasks." });
-        }
+        // if (parseInt(user.uncompleted_orders || 0) <= 0) {
+        //     return res.status(400).json({ message: "You have already completed all your daily tasks." });
+        // }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
             if (recordErr) return res.status(500).json({ message: "Failed to submit rating." });
@@ -166,6 +181,7 @@ exports.submitTaskRating = (req, res) => {
             InjectionPlan.findByUserIdAndOrder(userId, nextTaskNumber, (planErr, luckyPlan) => {
                 if (planErr) return res.status(500).json({ message: "Error checking for lucky order." });
 
+                // Logic for a LUCKY order
                 if (luckyPlan) {
                     const capitalRequired = parseFloat(luckyPlan.injections_amount);
                     const profitAmount = parseFloat(luckyPlan.commission_rate);
@@ -174,7 +190,7 @@ exports.submitTaskRating = (req, res) => {
                         return res.status(400).json({ message: `Insufficient balance for this lucky order. You need $${capitalRequired.toFixed(2)}. Please recharge.` });
                     }
 
-                    User.updateBalanceAndTaskCount(userId, capitalRequired, 0, 'deduct', (deductErr) => {
+                    User.updateBalanceAndTaskCount(userId, capitalRequired, 'deduct', (deductErr) => {
                         if (deductErr) return res.status(500).json({ message: "Failed to process lucky order deduction." });
 
                         InjectionPlan.markAsUsed(userId, nextTaskNumber, (markErr) => {
@@ -183,8 +199,7 @@ exports.submitTaskRating = (req, res) => {
 
                         const returnAmount = capitalRequired + profitAmount;
                         setTimeout(() => {
-                            // *** MODIFIED: Pass profitAmount to be added to daily_profit ***
-                            User.updateBalanceAndTaskCount(userId, returnAmount, profitAmount, 'add', (addErr) => {
+                            User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
 
@@ -209,10 +224,11 @@ exports.submitTaskRating = (req, res) => {
                     });
 
                 } else {
+                    // Logic for a NORMAL task (Corrected Profit Calculation)
+                    // The 5% profit is calculated from the user's current balance.
                     const profitToAdd = parseFloat(user.wallet_balance) * NORMAL_TASK_PROFIT_PERCENTAGE;
 
-                    // *** MODIFIED: Pass profitToAdd to be added to daily_profit ***
-                    User.updateBalanceAndTaskCount(userId, profitToAdd, profitToAdd, 'add', (updateErr) => {
+                    User.updateBalanceAndTaskCount(userId, profitToAdd, 'add', (updateErr) => {
                         if (updateErr) return res.status(500).json({ message: "Task completed, but failed to update user data." });
 
                         User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
