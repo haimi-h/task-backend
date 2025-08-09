@@ -60,8 +60,17 @@ exports.getTask = (req, res) => {
             return res.status(500).json({ message: "Error fetching user details." });
         }
 
-        if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(200).json({ message: "You have completed all your daily tasks chec.", task: null });
+        // if (parseInt(user.uncompleted_orders || 0) <= 0) {
+        //     return res.status(200).json({ message: "You have completed all your daily tasks chec.", task: null });
+        // }
+         if (parseInt(user.uncompleted_orders || 0) <= 0) {
+            // Calculate the daily profit based on completed tasks and profit percentage
+            const dailyProfit = parseFloat(user.wallet_balance) * NORMAL_TASK_PROFIT_PERCENTAGE * parseInt(user.completed_orders || 0);
+
+            return res.status(200).json({
+                message: `Congratulation, you have completed your daily tasks with a profit of $${dailyProfit.toFixed(2)}. You have now a current balance of $${parseFloat(user.wallet_balance).toFixed(2)} available for withdrawal.`,
+                task: null
+            });
         }
 
         const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
@@ -166,9 +175,9 @@ exports.submitTaskRating = (req, res) => {
     User.findById(userId, (err, user) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
-        if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(400).json({ message: "You have already completed all your daily tasks check." });
-        }
+        // if (parseInt(user.uncompleted_orders || 0) <= 0) {
+        //     return res.status(400).json({ message: "You have already completed all your daily tasks check." });
+        // }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
             if (recordErr) return res.status(500).json({ message: "Failed to submit rating." });
