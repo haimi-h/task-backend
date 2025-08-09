@@ -59,6 +59,22 @@ exports.getTask = (req, res) => {
         if (err || !user) {
             return res.status(500).json({ message: "Error fetching user details." });
         }
+        // Minimal Change 3: Check for daily completion and send final message
+        if (parseInt(user.uncompleted_orders || 0) <= 0) {
+            const finalBalance = parseFloat(user.wallet_balance) || 0;
+            const finalProfit = parseFloat(user.daily_profit) || 0;
+
+            // Reset the daily profit after sending the message
+            User.resetDailyProfit(userId, (resetErr) => {
+                if (resetErr) console.error("Failed to reset daily profit for user:", userId);
+            });
+
+            return res.status(200).json({
+                message: `Congratulations, you have completed your daily tasks with a total profit of $${finalProfit.toFixed(2)}! Your current balance is $${finalBalance.toFixed(2)} available for withdrawal.`,
+                task: null,
+                isDailyTaskCompletion: true
+            });
+        }
 
         // if (parseInt(user.uncompleted_orders || 0) <= 0) {
         //     return res.status(200).json({ message: "You have completed all your daily tasks chec.", task: null });
@@ -206,6 +222,7 @@ exports.submitTaskRating = (req, res) => {
                         setTimeout(() => {
                             User.updateBalanceAndTaskCount(userId, returnAmount, 'add', (addErr) => {
                                 if (addErr) console.error(`Error adding profit for lucky order user ${userId}:`, addErr);
+                                
                                 else console.log(`Lucky order capital and profit credited to user ${userId}.`);
 
                                 User.findUsersByReferrerId(userId, (findReferralsErr, referredUsers) => {
@@ -222,6 +239,9 @@ exports.submitTaskRating = (req, res) => {
                                         });
                                     }
                                 });
+                                User.updateDailyProfit(userId, profitToAdd, (profitUpdateErr) => {
+                                if (profitUpdateErr) console.error("Failed to update daily profit:", profitUpdateErr);
+                            });
                             });
                         }, 2000);
 
@@ -250,6 +270,10 @@ exports.submitTaskRating = (req, res) => {
                                     });
                                 });
                             }
+                        });
+                        // Minimal Change 2: Update daily profit after a normal task
+                        User.updateDailyProfit(userId, profitToAdd, (profitUpdateErr) => {
+                            if (profitUpdateErr) console.error("Failed to update daily profit:", profitUpdateErr);
                         });
                         
                         res.status(200).json({ message: `Task completed! You earned $${profitToAdd.toFixed(2)}.`, isCompleted: true });

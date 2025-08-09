@@ -48,6 +48,7 @@ const User = {
             callback(null, user);
         });
     },
+    
 
     /**
      * NEW: Finds all users who were referred by a specific referrer.
@@ -208,6 +209,32 @@ const User = {
 
         db.query(sql, values, callback);
     },
+    // NEW HELPER FUNCTION: Adds to the user's daily profit
+    updateDailyProfit: (userId, amount, callback) => {
+        const query = `UPDATE users SET daily_profit = daily_profit + ? WHERE id = ?`;
+        db.query(query, [amount, userId], (err, res) => {
+            if (err) {
+                console.error("Error updating daily profit:", err);
+                callback(err, null);
+                return;
+            }
+            callback(null, res);
+        });
+    },
+
+    // NEW HELPER FUNCTION: Resets the user's daily profit
+    resetDailyProfit: (userId, callback) => {
+        const query = `UPDATE users SET daily_profit = 0 WHERE id = ?`;
+        db.query(query, [userId], (err, res) => {
+            if (err) {
+                console.error("Error resetting daily profit:", err);
+                callback(err, null);
+                return;
+            }
+            callback(null, res);
+        });
+    },
+
 
     updateWithdrawalWalletAddress: (userId, newAddress, callback) => {
         const sql = `UPDATE users SET withdrawal_wallet_address = ? WHERE id = ?`;
