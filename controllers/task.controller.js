@@ -61,7 +61,7 @@ exports.getTask = (req, res) => {
         }
 
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
+            return res.status(200).json({ message: "You have completed all your daily tasks chec.", task: null });
         }
 
         const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
@@ -167,7 +167,7 @@ exports.submitTaskRating = (req, res) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(400).json({ message: "You have already completed all your daily tasks." });
+            return res.status(400).json({ message: "You have already completed all your daily tasks check." });
         }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
