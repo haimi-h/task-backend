@@ -38,7 +38,7 @@ const User = {
     findById: (id, callback) => {
         // ADD 'password' and 'referrer_id' to the SELECT statement
         // Corrected SQL to include referrer_id
-        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
+        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, daily_profit, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 console.error(`[User Model - findById] Database error for User ${id}:`, err);
