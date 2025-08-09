@@ -59,13 +59,9 @@ exports.getTask = (req, res) => {
         if (err || !user) {
             return res.status(500).json({ message: "Error fetching user details." });
         }
-		
-        // MODIFICATION: Check for completed tasks and display the new summary message.
+
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            const dailyProfit = parseFloat(user.todays_profit || 0);
-            const currentBalance = parseFloat(user.wallet_balance || 0);
-            const message = `Congratulation, you have completed your daily tasks with a profit of $${dailyProfit.toFixed(2)}. You have now a current balance of $${currentBalance.toFixed(2)} available for withdrawal.`;
-            return res.status(200).json({ message: message, task: null });
+            return res.status(200).json({ message: "You have completed all your daily tasks.", task: null });
         }
 
         const nextTaskNumber = parseInt(user.completed_orders || 0, 10) + 1;
