@@ -36,8 +36,7 @@ const User = {
     },
 
     findById: (id, callback) => {
-        // ADD 'password' and 'referrer_id' to the SELECT statement
-        // Corrected SQL to include referrer_id
+        // MODIFIED: Added 'todays_profit' to the SELECT statement.
         const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password, todays_profit FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
@@ -80,6 +79,9 @@ const User = {
         let sql;
 
         if (type === 'add') { // A task has been successfully completed
+            // MODIFICATION: Also increment the 'todays_profit' column.
+            // NOTE: This requires a 'todays_profit' column in the 'users' table (e.g., DECIMAL(10, 2) DEFAULT 0).
+            // This column should be reset to 0 by the same daily process that resets the task counts.
             sql = `
                 UPDATE users
                 SET
@@ -91,7 +93,7 @@ const User = {
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
-            db.query(sql, [amount, userId], callback);
+            db.query(sql, [amount, amount, userId], callback);
         } else if (type === 'deduct') { // For lucky order capital deduction
              sql = `
                 UPDATE users
