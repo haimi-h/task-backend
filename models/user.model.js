@@ -91,7 +91,24 @@ const User = {
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
-            db.query(sql, [amount, userId], callback);
+            // db.query(sql, [amount, userId], callback);
+             db.query(sql, [amount, userId], (err, res) => {
+                if (err) {
+                    return callback(err, null);
+                }
+
+                // If the first query is successful, then execute the second query to update daily profit
+                User.updateDailyProfit(userId, amount, (profitErr, profitRes) => {
+                    if (profitErr) {
+                        console.error("Error updating daily profit:", profitErr);
+                        return callback(profitErr, null);
+                    }
+
+                    // If both queries are successful, call the final callback with the result of the first query
+                    callback(null, res);
+                });
+            });
+            
         } else if (type === 'deduct') { // For lucky order capital deduction
              sql = `
                 UPDATE users
