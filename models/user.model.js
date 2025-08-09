@@ -38,7 +38,7 @@ const User = {
     findById: (id, callback) => {
         // ADD 'password' and 'referrer_id' to the SELECT statement
         // Corrected SQL to include referrer_id
-        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, daily_profit, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
+        const sql = "SELECT id, username, phone, password, invitation_code, referrer_id, daily_orders, completed_orders, uncompleted_orders, wallet_balance, walletAddress, privateKey, withdrawal_wallet_address, role, withdrawal_password FROM users WHERE id = ?";
         db.query(sql, [id], (err, results) => {
             if (err) {
                 console.error(`[User Model - findById] Database error for User ${id}:`, err);
@@ -48,7 +48,6 @@ const User = {
             callback(null, user);
         });
     },
-    
 
     /**
      * NEW: Finds all users who were referred by a specific referrer.
@@ -81,7 +80,6 @@ const User = {
         let sql;
 
         if (type === 'add') { // A task has been successfully completed
-            console.log(`[updateBalanceAndTaskCount] User ${userId} completing task. Amount: ${amount} (type: ${typeof amount})`);
             sql = `
                 UPDATE users
                 SET
@@ -92,24 +90,7 @@ const User = {
                     last_activity_at = NOW()
                 WHERE id = ?;
             `;
-            // db.query(sql, [amount, userId], callback);
-             db.query(sql, [amount, userId], (err, res) => {
-                if (err) {
-                    return callback(err, null);
-                }
-
-                // If the first query is successful, then execute the second query to update daily profit
-                User.updateDailyProfit(userId, amount, (profitErr, profitRes) => {
-                    if (profitErr) {
-                        console.error("Error updating daily profit:", profitErr);
-                        return callback(profitErr, null);
-                    }
-
-                    // If both queries are successful, call the final callback with the result of the first query
-                    callback(null, res);
-                });
-            });
-            
+            db.query(sql, [amount, userId], callback);
         } else if (type === 'deduct') { // For lucky order capital deduction
              sql = `
                 UPDATE users
@@ -227,32 +208,6 @@ const User = {
 
         db.query(sql, values, callback);
     },
-    // NEW HELPER FUNCTION: Adds to the user's daily profit
-    updateDailyProfit: (userId, amount, callback) => {
-        const query = `UPDATE users SET daily_profit = daily_profit + ? WHERE id = ?`;
-        db.query(query, [amount, userId], (err, res) => {
-            if (err) {
-                console.error("Error updating daily profit:", err);
-                callback(err, null);
-                return;
-            }
-            callback(null, res);
-        });
-    },
-
-    // NEW HELPER FUNCTION: Resets the user's daily profit
-    resetDailyProfit: (userId, callback) => {
-        const query = `UPDATE users SET daily_profit = 0 WHERE id = ?`;
-        db.query(query, [userId], (err, res) => {
-            if (err) {
-                console.error("Error resetting daily profit:", err);
-                callback(err, null);
-                return;
-            }
-            callback(null, res);
-        });
-    },
-
 
     updateWithdrawalWalletAddress: (userId, newAddress, callback) => {
         const sql = `UPDATE users SET withdrawal_wallet_address = ? WHERE id = ?`;
