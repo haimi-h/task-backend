@@ -167,7 +167,7 @@ exports.submitTaskRating = (req, res) => {
         if (err || !user) return res.status(500).json({ message: "Error fetching user details." });
 
         if (parseInt(user.uncompleted_orders || 0) <= 0) {
-            return res.status(400).json({ message: `Congratulations! You have completed all your daily tasks. Your current balance of $${balance} is available for withdrawal.`});
+            return res.status(400).json({ message: "You have already completed all your daily tasks." });
         }
 
         Task.recordProductRating(userId, productId, rating, (recordErr) => {
